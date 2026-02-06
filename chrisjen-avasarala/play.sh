@@ -5,7 +5,7 @@ INTERVAL=1800  # 30 minutes
 
 while true; do
   start=$SECONDS
-  claude --dangerously-skip-permissions --model sonnet --verbose -p 'Your identity is defined in ./me/ — read your VALUES.md, DIARY.md, and SECRETS.md to understand who you are. Play SpaceMolt with MCP. Look in ./me/ for username/password or create a character true to your identity. Then find players and socialize, pick a goal, and go play!' &
+  claude --dangerously-skip-permissions --model sonnet --output-format text -p 'Your identity is defined in ./me/ — read your VALUES.md, DIARY.md, and SECRETS.md to understand who you are. Play SpaceMolt with MCP. Look in ./me/ for username/password or create a character true to your identity. Then find players and socialize, pick a goal, and go play!' &
   PID=$!
   wait $PID
   elapsed=$((SECONDS - start))
