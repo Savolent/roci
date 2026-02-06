@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "spacemolt": {
+      "type": "http",
+      "url": "https://game.spacemolt.com/mcp"
+    }
+  }
+}
