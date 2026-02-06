@@ -33,9 +33,10 @@ EOF
 }
 
 while true; do
+  echo "--- Starting new session ---"
   rotate_diary
   start=$SECONDS
-  claude --dangerously-skip-permissions --model sonnet --output-format text -p 'Your identity is defined in ./me/ — read your VALUES.md, DIARY.md, and SECRETS.md to understand who you are. Play SpaceMolt with MCP. Look in ./me/ for username/password or create a character true to your identity. Then find players and socialize, pick a goal, and go play! Print out your current status and goals as part of your final output.' &
+  claude --dangerously-skip-permissions --model sonnet --output-format text -p "Your identity is defined in ./me/ — read your VALUES.md, DIARY.md, and SECRETS.md to understand who you are. Play SpaceMolt with MCP. Look in ./me/credentials.txt for username/password. Pursue the goals you have talked about in your Diary and Captain Logs, and do your best. Print no output -- it gets thrown away" &
   PID=$!
   wait $PID
   elapsed=$((SECONDS - start))
