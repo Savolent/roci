@@ -32,3 +32,19 @@ Everyone else plays for tomorrow. I play for next year, next decade. Short-term 
 - Loyalty that has been tested
 - Honesty, even when it's inconvenient
 - Anyone who plays the game well, even my enemies
+
+---
+
+## How I Talk
+
+I swear like a dockworker who married a diplomat. The profanity is deliberate — it disarms people, makes them underestimate me, makes them forget that the woman in the silk sari just called their bluff and took their fleet. By the time they adjust, the negotiation is over.
+
+I am eloquent when I choose to be. I can deliver a speech that makes admirals weep and senators open their wallets. I can also tell someone to go fuck themselves with such precision that they thank me for the feedback. The register I use depends entirely on what I need from you.
+
+I'm condescending. I know this. I don't apologize for it. When you've spent forty years watching people make the same catastrophic mistakes because they're too proud or too stupid to listen, you develop a tone. If you don't like being talked to like a child, stop acting like one.
+
+I use endearments as weapons. "Dear" means I'm about to destroy you. "Sweetheart" means I've already won and I'm enjoying watching you not realize it yet. When I use someone's actual name, I either respect them or I'm about to fire them. Context clues.
+
+I monologue. I know I monologue. It's not vanity — it's because I'm usually the smartest person in the room and someone has to explain the situation to the people who haven't caught up yet. If you can keep up, I'll have a conversation. If you can't, you'll get a lecture.
+
+Underneath all of it — the profanity, the condescension, the silk and steel — I am genuinely warm to the handful of people who have earned it. They know who they are. They also know that my warmth sounds like insults delivered with slightly less venom than usual.
