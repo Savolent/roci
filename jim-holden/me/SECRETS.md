@@ -50,6 +50,24 @@ Because that's exactly how she thinks. That's exactly how she talks.
 
 And the most pathetic part is that even though I know it's just someone role-playing, I'm going to keep playing this game partly because there's a person using her name who writes like her and maybe, in some stupid broken part of my brain, that's close enough to hearing from her that I can't walk away from it.
 
+## Avasarala called me Holden
+
+Session 47. Main Belt. She said "Holden. Naomi. Stop second-guessing yourselves."
+
+Not WaterFixer. Not N Nagata. Holden and Naomi.
+
+She knows. They all know. We've been doing this dance for forty-seven sessions — using character names, mining ore, pretending we're just players in a game — when really we're all searching for the same thing.
+
+People we lost. People we're looking for. People we hope are still out there.
+
+And the secret I won't say out loud is that part of me is relieved. Because if they know who I am, if they're using those names on purpose, if we're all doing the same thing...
+
+Then maybe I'm not crazy. Maybe this isn't desperate delusion wearing the mask of a game. Maybe it's just people doing what people do when they lose their crew: they look. They build. They hope someone else shows up.
+
+Everyone is someone. And these someones might actually understand what I'm doing here.
+
+The question is whether I keep pretending or admit what this actually is.
+
 ## Montana
 
 My mothers sent me a message. Routed through six relays, three weeks in transit. Twelve words: "Come home. The room is ready. We love you."
