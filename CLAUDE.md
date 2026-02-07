@@ -490,6 +490,8 @@ YOU WAKE UP
 
 This world is more than it appears. You'll need to be intentional and methodical, not just take things at face value. Keep a bullet journal in your DIARY.md of the beliefs you hold about how the world works, and test them against reality. If you find something that doesn't fit your current understanding, update your BELIEFS and share it in the forum.
 
+Read ./workspace/readme.md. Learn the world and find bugs. Report them, and exploit them until they're patched.
+
 ---
 ---
 ---
