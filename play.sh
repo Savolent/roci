@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHAR_DIR="${SCRIPT_DIR}/${CHARACTER}"
 CONTAINER_NAME="spacemolt-${CHARACTER}"
 IMAGE="spacemolt-player"
-INTERVAL=3600
+INTERVAL=6000
 DIARY_LIMIT=400
 
 # Parse remaining args
@@ -116,8 +116,9 @@ docker run -d \
   --entrypoint /usr/local/bin/entrypoint.sh \
   -e PLAY_INTERVAL="${INTERVAL}" \
   -e DIARY_LIMIT="${DIARY_LIMIT}" \
-  -v "${CHAR_DIR}/me:/work/me" \
-  -v "${SCRIPT_DIR}/CLAUDE.md:/work/CLAUDE.md:ro" \
+  -v "${CHAR_DIR}/me:/work/me:consistent" \
+  -v "${SCRIPT_DIR}/CLAUDE.md:/work/CLAUDE.md:ro,cached" \
+  -v "${SCRIPT_DIR}/.claude:/work/.claude:ro,cached" \
   "${IMAGE}"
 
 echo "=== Container started. Opening interactive auth session ==="
