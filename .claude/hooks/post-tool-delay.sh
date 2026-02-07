@@ -28,7 +28,7 @@ case "$ACTION" in
     ;;
 
   # Resource gathering — steady rhythm
-  mine|salvage_wreck|salvage_base_wreck|loot_wreck|loot_base_wreck)
+  salvage_wreck|salvage_base_wreck|loot_wreck|loot_base_wreck)
     DELAY=11
     ;;
 
