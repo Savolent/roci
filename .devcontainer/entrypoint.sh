@@ -54,8 +54,9 @@ EOF
 }
 
 # --- Game loop ---
+WORK_PID=""
 SLEEP_PID=""
-trap 'kill "$SLEEP_PID" 2>/dev/null || true' USR1
+trap 'kill "$WORK_PID" "$SLEEP_PID" 2>/dev/null || true' USR1
 
 while true; do
   echo "--- Starting new session at $(date) ---"
@@ -65,7 +66,10 @@ while true; do
     --dangerously-skip-permissions \
     --output-format "stream-json" --verbose \
     --model sonnet \
-    || true
+    &
+  WORK_PID=$!
+  wait "$WORK_PID" 2>/dev/null || true
+  WORK_PID=""
   elapsed=$((SECONDS - start))
   remaining=$((PLAY_INTERVAL - elapsed))
   if [ "$remaining" -gt 0 ]; then
