@@ -102,6 +102,14 @@ echo "Host network detected as: $HOST_NETWORK"
 iptables -A INPUT -s "$HOST_NETWORK" -j ACCEPT
 iptables -A OUTPUT -d "$HOST_NETWORK" -j ACCEPT
 
+# Allow Docker Desktop host gateway (host.docker.internal IPv4)
+DOCKER_HOST_IP=$(getent ahostsv4 host.docker.internal 2>/dev/null | head -1 | awk '{print $1}')
+if [ -n "$DOCKER_HOST_IP" ] && [ "$DOCKER_HOST_IP" != "$HOST_IP" ]; then
+  echo "Docker host gateway detected as: $DOCKER_HOST_IP"
+  iptables -A INPUT -s "$DOCKER_HOST_IP" -j ACCEPT
+  iptables -A OUTPUT -d "$DOCKER_HOST_IP" -j ACCEPT
+fi
+
 # Set default policies to DROP first
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
