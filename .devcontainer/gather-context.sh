@@ -23,27 +23,27 @@ $SM status
 echo
 
 echo "## Top Skills"
-$SM skills
+$SM skills || true
 echo
 
 echo "## Captain's Log (recent)"
-$SM log --brief
+$SM log --brief || true
 echo
 
 echo "## Nearby Players"
-$SM nearby
+$SM nearby || true
 echo
 
 echo "## Active Missions"
-$SM active-missions
+$SM active-missions || true
 echo
 
 echo "## Available Missions"
-$SM missions
+$SM missions || true
 echo
 
 echo "## Forum Threads"
-$SM raw forum_list | python3 -c "
+$SM raw forum_list 2>/dev/null | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 threads = data.get('result', data).get('threads', [])

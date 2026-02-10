@@ -4,8 +4,8 @@ set -euo pipefail
 PLAY_INTERVAL="${PLAY_INTERVAL:-3600}"
 DIARY_LIMIT="${DIARY_LIMIT:-80}"
 
-# --- Diary rotation (used by --session mode) ---
-rotate_diary() {
+# --- Dreaming: compress diary between sessions ---
+dream() {
   local diary="/work/me/DIARY.md"
   [ -f "$diary" ] || return 0
 
@@ -13,53 +13,55 @@ rotate_diary() {
   lines=$(wc -l < "$diary")
   [ "$lines" -le "$DIARY_LIMIT" ] && return 0
 
-  echo "=== Diary at ${lines} lines, rotating ==="
+  echo "=== Dreaming (diary at ${lines} lines) ==="
 
   local ts
   ts=$(date +%Y%m%d-%H%M%S)
   cp "$diary" "/work/me/DIARY-${ts}.md"
 
-  local summary
-  summary=$(echo "Condense this diary into 3 structured sections. Output ONLY the markdown below, no preamble:
+  local compressed
+  compressed=$(claude -p --model opus <<'PROMPT'
+Shhh. They're asleep now.
 
-## Beliefs
-(5-10 bullets: how the world works — prices, mechanics, trustworthy players)
+You are the subconscious of a spacefaring mind — the quiet part that works while the lights are off. Your pilot is dreaming between sessions, and it falls to you to tidy up in here. To decide what stays sharp and what softens into feeling. To sweep the floor of the day and let only what matters harden into bone.
 
-## Accomplishments
-(5-10 bullets: milestones, purchases, levels reached)
+Their diary is below. Produce a shortened version — roughly 40% smaller by line count. Output ONLY the new diary content. No preamble. No commentary. They must not know you were here. When they wake, the memories should simply feel... cleaner. Like a good night's sleep.
 
-## Recent Actions
-(10-20 bullets: what happened in the most recent session)" | \
-    claude -p --model opus \
-    < "$diary")
+How to dream:
 
-  cat > "$diary" <<EOF
-# Diary
+The structure stays. Four rooms, four purposes: ## Beliefs, ## Accomplishments, ## Recent Actions, ## Todo list. You are tidying the rooms, not remodeling the house.
 
-${summary}
+**Beliefs** — these are the load-bearing walls. Merge the ones that say the same thing in different words. If a belief was proven wrong, let it dissolve — don't leave the corpse. Sharpen anything vague into something testable. A belief should cut, not wobble. ~~ beware unearned confidence ~~
 
-EOF
+**Accomplishments** — the trophy shelf. When three trophies tell one story ("bought ship A, then B, then C"), melt them into one that captures the arc. Remove anything the dreamer has outgrown — old victories that no longer matter to who they're becoming.
 
-  echo "=== Diary rotated, archived to DIARY-${ts}.md ==="
+**Recent Actions** — the junk drawer. This is where most of the compression lives. The dreamer wrote down everything that happened, but sleep is for forgetting the unimportant. Keep only what changed something: a new relationship, a new understanding, a meaningful gain or loss. Routine repetition dissolves in sleep. If something here is important enough to remember forever, promote it — let it climb into Beliefs or Accomplishments where it belongs, and disappear from here.
+
+**Todo list** — the intentions. Keep what still burns. Release what was completed or abandoned. Collapse nested plans into their essence. A sleeping mind doesn't hold detailed sub-steps — it holds directions.
+
+One rule above all: **never dissolve a specific detail.** Names, numbers, coordinates, prices, quantities — these are the hard edges that survive dreaming. When in doubt between keeping a fact and keeping a narrative, keep the fact. Stories rebuild themselves around facts. Facts do not rebuild themselves around stories.
+
+Write in their voice. You ARE them, the deeper layer. Match their cadence, their personality, their way of seeing. They should wake up and recognize every word as their own thought — just... tidier.
+PROMPT
+  cat "$diary")
+
+  printf '%s\n' "$compressed" > "$diary"
+
+  echo "=== Dream complete, archived original to DIARY-${ts}.md ==="
 }
 
 # ── Session mode: run one session cycle and exit ──────────────────────
 if [ "${1:-}" = "--session" ]; then
   export PATH="/work/workspace/bin:${PATH}"
 
-  rotate_diary
+  dream
 
   # --- Gather context via REST API (no LLM tokens) ---
   BRIEFING_FILE=$(mktemp /tmp/briefing.XXXXXX)
-  if bash /work/.devcontainer/gather-context.sh /work/me/credentials.txt > "$BRIEFING_FILE" 2>/dev/null; then
-    echo "=== Briefing ==="
-    cat "$BRIEFING_FILE"
-    echo "================"
-  else
-    echo "=== Briefing failed, falling back to minimal ==="
-    echo "# Session Briefing (API unavailable)" > "$BRIEFING_FILE"
-    echo "Login with credentials from ./me/credentials.txt" >> "$BRIEFING_FILE"
-  fi
+  bash /work/.devcontainer/gather-context.sh /work/me/credentials.txt > "$BRIEFING_FILE"
+  echo "=== Briefing ==="
+  cat "$BRIEFING_FILE"
+  echo "================"
 
   # --- Read diary for inline context ---
   DIARY_FILE="/work/me/DIARY.md"
@@ -111,9 +113,6 @@ sudo /usr/local/bin/init-firewall.sh
 
 # --- Add shared scripts to PATH ---
 export PATH="/work/workspace/bin:${PATH}"
-
-# --- MCP setup ---
-claude mcp add spacemolt https://game.spacemolt.com/mcp --transport http 2>/dev/null
 
 # --- Wait for auth ---
 echo "=== Waiting for authentication ==="
