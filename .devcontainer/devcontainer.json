@@ -44,6 +44,6 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/work,type=bind,consistency=delegated",
   "workspaceFolder": "/work",
-  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && claude mcp add spacemolt https://game.spacemolt.com/mcp --transport http 2>/dev/null",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
   "waitFor": "postStartCommand"
 }
