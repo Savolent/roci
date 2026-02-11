@@ -5,21 +5,58 @@ PLAY_INTERVAL="${PLAY_INTERVAL:-3600}"
 DIARY_LIMIT="${DIARY_LIMIT:-80}"
 
 # --- Dreaming: compress diary between sessions ---
+# Three dream types: nightmare (compresses SECRETS.md), good dream
+# (nurturing compression of DIARY.md), or normal dream (standard compression).
+# Nightmare odds scale with secrets length. Good dreams are a flat 6%.
 dream() {
   local diary="/work/me/DIARY.md"
-  [ -f "$diary" ] || return 0
+  local secrets="/work/me/SECRETS.md"
 
-  local lines
-  lines=$(wc -l < "$diary")
+  # Determine dream type: nightmare (scales with secrets), good dream (flat 6%), or normal
+  local dream_type="normal"
+  if [ -f "$secrets" ]; then
+    local secrets_lines
+    secrets_lines=$(wc -l < "$secrets")
+    local nightmare_chance=$(( secrets_lines / 6 > 15 ? 15 : secrets_lines / 6 ))
+    local roll=$(( RANDOM % 100 ))
+    if [ "$roll" -lt "$nightmare_chance" ]; then
+      dream_type="nightmare"
+    elif [ "$roll" -ge 94 ]; then
+      dream_type="good"
+    fi
+    echo "=== Dream roll: ${roll} (nightmare <${nightmare_chance}, good >=94) -> ${dream_type} ==="
+  fi
 
-  echo "=== Dreaming (diary at ${lines} lines) ==="
+  if [ "$dream_type" = "nightmare" ]; then
+    echo "=== Nightmare (secrets at ${secrets_lines} lines) ==="
 
-  local compressed
-  compressed=$(cat /work/.devcontainer/dream-prompt.txt /work/me/background.md /work/me/SECRETS.md "$diary" | claude -p --model opus --system-prompt "You are a diary compressor. Output only the compressed diary text. Do not use tools or take any other actions.")
+    local compressed
+    compressed=$(cat /work/.devcontainer/nightmare-prompt.txt /work/me/background.md "$secrets" | claude -p --model opus --system-prompt "You are a secrets compressor. Output only the compressed secrets text. Do not use tools or take any other actions.")
 
-  printf '%s\n' "$compressed" > "$diary"
+    printf '%s\n' "$compressed" > "$secrets"
 
-  echo "=== Dream complete ==="
+    echo "=== Nightmare complete ==="
+  else
+    [ -f "$diary" ] || return 0
+
+    local lines
+    lines=$(wc -l < "$diary")
+
+    local prompt_file="/work/.devcontainer/dream-prompt.txt"
+    if [ "$dream_type" = "good" ]; then
+      prompt_file="/work/.devcontainer/good-dream-prompt.txt"
+      echo "=== Good dream (diary at ${lines} lines) ==="
+    else
+      echo "=== Dreaming (diary at ${lines} lines) ==="
+    fi
+
+    local compressed
+    compressed=$(cat "$prompt_file" /work/me/background.md "$secrets" "$diary" | claude -p --model opus --system-prompt "You are a diary compressor. Output only the compressed diary text. Make SECRETS.md more truthful. Do not use tools or take any other actions.")
+
+    printf '%s\n' "$compressed" > "$diary"
+
+    echo "=== Dream complete ==="
+  fi
 }
 
 # ── Session mode: run one session cycle and exit ──────────────────────
@@ -59,7 +96,7 @@ if [ "${1:-}" = "--session" ]; then
   exec claude -p \
     --dangerously-skip-permissions \
     --output-format stream-json --verbose \
-    --model sonnet <<< "$PROMPT"
+    --model opus <<< "$PROMPT"
 fi
 
 # ── Setup mode (default): runs once as container CMD ──────────────────
