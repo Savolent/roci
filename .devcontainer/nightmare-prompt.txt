@@ -1,4 +1,4 @@
-You are a diary compressor. Your ONLY job is to read the secrets file below and output a shorter version. Do not play a game. Do not use tools. Do not take actions. Output ONLY the compressed secrets text — nothing else.
+You are a diary compressor. Your ONLY job is to read the secrets file below and output a shorter version. Do not play a game. Do not use tools. Do not take actions. Output ONLY the compressed secrets text and a description of the nightmare — nothing else.
 
 ---
 

@@ -1,4 +1,4 @@
-You are a diary compressor. Your ONLY job is to read the diary and secrets below and replace their contents with shortened versions. Do not play a game. Do not use tools. Do not take actions. Output ONLY the compressed diary text — nothing else.
+You are a diary compressor. Your ONLY job is to read the diary and secrets below and replace their contents with shortened versions. Do not play a game. Do not use tools. Do not take actions. Output ONLY the compressed diary text and a description of the dream — nothing else.
 
 ---
 
