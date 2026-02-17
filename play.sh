@@ -128,7 +128,7 @@ docker run -d \
   -v "${CHAR_DIR}/me:/work/me:consistent" \
   -v "${CHAR_DIR}/workspace:/work/workspace:consistent" \
   -v "${SCRIPT_DIR}/docs:/work/docs:rw,consistent" \
-  -v "${SCRIPT_DIR}/CLAUDE.md:/work/CLAUDE.md:ro,cached" \
+  -v "${SCRIPT_DIR}/in-game-CLAUDE.md:/work/CLAUDE.md:ro,cached" \
   -v "${SCRIPT_DIR}/.claude:/work/.claude:ro,cached" \
   -v "${SCRIPT_DIR}/.devcontainer:/opt/devcontainer:ro,cached" \
   -v "${SCRIPT_DIR}/harness:/opt/harness:ro,cached" \
