@@ -4,61 +4,6 @@ set -euo pipefail
 PLAY_INTERVAL="${PLAY_INTERVAL:-3600}"
 DIARY_LIMIT="${DIARY_LIMIT:-80}"
 
-# --- Dreaming: compress diary between sessions ---
-# Three dream types: nightmare (compresses SECRETS.md), good dream
-# (nurturing compression of DIARY.md), or normal dream (standard compression).
-# Nightmare odds scale with secrets length. Good dreams are a flat 6%.
-dream() {
-  local diary="/work/me/DIARY.md"
-  local secrets="/work/me/SECRETS.md"
-
-  # Determine dream type: nightmare (scales with secrets), good dream (flat 6%), or normal
-  local dream_type="normal"
-  if [ -f "$secrets" ]; then
-    local secrets_lines
-    secrets_lines=$(wc -l < "$secrets")
-    local nightmare_chance=$(( secrets_lines / 6 > 15 ? 15 : secrets_lines / 6 ))
-    local roll=$(( RANDOM % 100 ))
-    if [ "$roll" -lt "$nightmare_chance" ]; then
-      dream_type="nightmare"
-    elif [ "$roll" -ge 94 ]; then
-      dream_type="good"
-    fi
-    echo "=== Dream roll: ${roll} (nightmare <${nightmare_chance}, good >=94) -> ${dream_type} ==="
-  fi
-
-  if [ "$dream_type" = "nightmare" ]; then
-    echo "=== Nightmare (secrets at ${secrets_lines} lines) ==="
-
-    local compressed
-    compressed=$(cat /work/.devcontainer/nightmare-prompt.txt /work/me/background.md "$secrets" | claude -p --model opus --system-prompt "You are a secrets compressor. Output only the compressed secrets text. Do not use tools or take any other actions.")
-
-    printf '%s\n' "$compressed" > "$secrets"
-
-    echo "=== Nightmare complete ==="
-  else
-    [ -f "$diary" ] || return 0
-
-    local lines
-    lines=$(wc -l < "$diary")
-
-    local prompt_file="/work/.devcontainer/dream-prompt.txt"
-    if [ "$dream_type" = "good" ]; then
-      prompt_file="/work/.devcontainer/good-dream-prompt.txt"
-      echo "=== Good dream (diary at ${lines} lines) ==="
-    else
-      echo "=== Dreaming (diary at ${lines} lines) ==="
-    fi
-
-    local compressed
-    compressed=$(cat "$prompt_file" /work/me/background.md "$secrets" "$diary" | claude -p --model opus --system-prompt "You are a diary compressor. Output only the compressed diary text. Make SECRETS.md more truthful. Do not use tools or take any other actions.")
-
-    printf '%s\n' "$compressed" > "$diary"
-
-    echo "=== Dream complete ==="
-  fi
-}
-
 # ── Session mode: run one session cycle and exit ──────────────────────
 if [ "${1:-}" = "--session" ]; then
   export PATH="/work/workspace/bin:${PATH}"
@@ -67,15 +12,22 @@ if [ "${1:-}" = "--session" ]; then
   SM_CLI_DIR="/work/workspace/bin"
   if [ -d "$SM_CLI_DIR/.git" ]; then
     git -C "$SM_CLI_DIR" pull --ff-only 2>/dev/null || true
+  elif [ -d "$SM_CLI_DIR" ]; then
+    # Directory exists but isn't a git repo — init and pull
+    git -C "$SM_CLI_DIR" init
+    git -C "$SM_CLI_DIR" remote add origin https://github.com/vcarl/sm-cli.git
+    git -C "$SM_CLI_DIR" fetch origin main 2>/dev/null || true
+    git -C "$SM_CLI_DIR" reset origin/main 2>/dev/null || true
   else
     git clone https://github.com/vcarl/sm-cli.git "$SM_CLI_DIR"
   fi
 
-  dream
+  # --- Dream: compress diary between sessions (TypeScript harness) ---
+  bun run /work/harness/src/dream.ts /work/me/credentials.txt --diary-limit "$DIARY_LIMIT"
 
-  # --- Gather context via REST API (no LLM tokens) ---
+  # --- Gather context via REST API (TypeScript harness, no LLM tokens) ---
   BRIEFING_FILE=$(mktemp /tmp/briefing.XXXXXX)
-  bash /work/.devcontainer/gather-context.sh /work/me/credentials.txt > "$BRIEFING_FILE"
+  bun run /work/harness/src/gather-context.ts /work/me/credentials.txt > "$BRIEFING_FILE"
   echo "=== Briefing ==="
   cat "$BRIEFING_FILE"
   echo "================"

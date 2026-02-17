@@ -128,6 +128,7 @@ docker run -d \
   -v "${SCRIPT_DIR}/CLAUDE.md:/work/CLAUDE.md:ro,cached" \
   -v "${SCRIPT_DIR}/.claude:/work/.claude:ro,cached" \
   -v "${SCRIPT_DIR}/.devcontainer:/work/.devcontainer:ro,cached" \
+  -v "${SCRIPT_DIR}/harness:/work/harness:ro,cached" \
   "${IMAGE}" \
   bash /work/.devcontainer/entrypoint.sh
 
