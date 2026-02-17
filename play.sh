@@ -70,14 +70,16 @@ pause_and_detach() {
 LOG_PID=""
 
 follow_logs() {
-  docker logs -f "${CONTAINER_NAME}" &
+  THOUGHTS_LOG="${CHAR_DIR}/logs/thoughts.log"
+  touch "$THOUGHTS_LOG"
+  tail -f "$THOUGHTS_LOG" &
   LOG_PID=$!
 
   trap 'kill "$LOG_PID" 2>/dev/null || true; wait "$LOG_PID" 2>/dev/null || true; pause_and_detach' INT TERM
 
   echo "=== Press 'r' to restart session, Ctrl-C to pause ==="
 
-  while kill -0 "$LOG_PID" 2>/dev/null; do
+  while docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; do
     if read -t 1 -n 1 key 2>/dev/null; then
       case "$key" in
         r|R)
