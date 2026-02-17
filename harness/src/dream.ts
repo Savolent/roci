@@ -1,22 +1,26 @@
 #!/usr/bin/env bun
 /**
- * dream.ts — TypeScript replacement for the bash dream() function
+ * dream.ts — Unified dream system for diary and secrets compression
  *
- * Handles diary compression between sessions using the dream system.
- * Three dream types: nightmare (compresses SECRETS.md), good dream
- * (nurturing compression of DIARY.md), or normal dream (standard compression).
+ * Every dream type processes BOTH diary and secrets with different emotional framing.
+ * Two separate LLM calls per dream — one for diary, one for secrets — each with
+ * its own prompt tuned for that file and that dream type.
+ *
+ * Dream types:
+ *   normal    — neutral tidying of both files
+ *   good      — warm, affirming framing; adds dream description to diary
+ *   nightmare — harsh, honest framing; adds nightmare description to diary;
+ *               prunes secrets aggressively (fewer, sharper — not shorter)
  *
  * Usage: bun run src/dream.ts <credentials-file> [--diary-limit <lines>]
- *
- * Reads diary/secrets from sibling files of credentials.
- * Calls `claude -p --model opus` for compression (same as original bash version).
- * Writes compressed output back to the diary/secrets files.
  */
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execSync } from "node:child_process";
 import { parseCredentialsFile } from "./context/prompt-builder.js";
+
+type DreamType = "normal" | "good" | "nightmare";
 
 async function main() {
 	const args = process.argv.slice(2);
@@ -42,18 +46,13 @@ async function main() {
 	const secretsPath = join(meDir, "SECRETS.md");
 	const backgroundPath = join(meDir, "background.md");
 
-	// Determine dream type
 	const dreamType = determineDreamType(secretsPath);
 	console.error(`=== Dream roll -> ${dreamType} ===`);
 
-	if (dreamType === "nightmare") {
-		await runNightmare(secretsPath, backgroundPath, meDir);
-	} else {
-		await runDream(dreamType, diaryPath, secretsPath, backgroundPath, meDir);
-	}
+	await runDream(dreamType, diaryPath, secretsPath, backgroundPath);
 }
 
-function determineDreamType(secretsPath: string): "normal" | "good" | "nightmare" {
+function determineDreamType(secretsPath: string): DreamType {
 	let nightmareChance = 0;
 	if (existsSync(secretsPath)) {
 		const secretsLines = readFileSync(secretsPath, "utf-8").split("\n").length;
@@ -70,98 +69,94 @@ function determineDreamType(secretsPath: string): "normal" | "good" | "nightmare
 	return "normal";
 }
 
-async function runNightmare(
-	secretsPath: string,
-	backgroundPath: string,
-	meDir: string,
-): Promise<void> {
-	if (!existsSync(secretsPath)) {
-		console.error("=== No secrets file, skipping nightmare ===");
-		return;
-	}
+function readIfExists(path: string): string {
+	return existsSync(path) ? readFileSync(path, "utf-8") : "";
+}
 
-	const secretsLines = readFileSync(secretsPath, "utf-8").split("\n").length;
-	console.error(`=== Nightmare (secrets at ${secretsLines} lines) ===`);
+function promptPath(filename: string): string {
+	return `/opt/devcontainer/${filename}`;
+}
 
-	// Build input: nightmare prompt + background + secrets
-	const promptPath = "/opt/devcontainer/nightmare-prompt.txt";
-	if (!existsSync(promptPath)) {
-		console.error("Error: nightmare-prompt.txt not found");
-		process.exit(1);
-	}
-
-	const prompt = readFileSync(promptPath, "utf-8");
-	const background = existsSync(backgroundPath) ? readFileSync(backgroundPath, "utf-8") : "";
-	const secrets = readFileSync(secretsPath, "utf-8");
-
-	const input = `${prompt}\n${background}\n${secrets}`;
-
-	try {
-		const compressed = execSync(
-			`claude -p --model opus --system-prompt "You are a secrets compressor. Output only the compressed secrets text. Do not use tools or take any other actions."`,
-			{
-				input,
-				encoding: "utf-8",
-				timeout: 120000,
-				maxBuffer: 1024 * 1024,
-			},
-		);
-
-		writeFileSync(secretsPath, compressed.trim() + "\n");
-		console.error("=== Nightmare complete ===");
-	} catch (err) {
-		console.error(`Nightmare failed: ${err instanceof Error ? err.message : String(err)}`);
-	}
+function runLlmCompress(systemPrompt: string, input: string): string {
+	return execSync(
+		`claude -p --model opus --system-prompt ${JSON.stringify(systemPrompt)}`,
+		{
+			input,
+			encoding: "utf-8",
+			timeout: 120000,
+			maxBuffer: 1024 * 1024,
+		},
+	).trim();
 }
 
 async function runDream(
-	dreamType: "normal" | "good",
+	dreamType: DreamType,
 	diaryPath: string,
 	secretsPath: string,
 	backgroundPath: string,
-	meDir: string,
 ): Promise<void> {
-	if (!existsSync(diaryPath)) {
-		console.error("=== No diary file, skipping dream ===");
-		return;
+	const background = readIfExists(backgroundPath);
+	const diary = readIfExists(diaryPath);
+	const secrets = readIfExists(secretsPath);
+
+	// --- Call 1: Diary compression ---
+	if (diary) {
+		const diaryPromptFile = promptPath(`${dreamType === "normal" ? "dream" : dreamType === "good" ? "good-dream" : "nightmare"}-diary-prompt.txt`);
+		if (!existsSync(diaryPromptFile)) {
+			console.error(`Error: ${diaryPromptFile} not found`);
+			process.exit(1);
+		}
+
+		const diaryLines = diary.split("\n").length;
+		console.error(`=== ${dreamType} dream — diary (${diaryLines} lines) ===`);
+
+		const diaryPrompt = readFileSync(diaryPromptFile, "utf-8");
+		// Feed: prompt + background (context) + secrets (read-only context) + diary
+		const diaryInput = `${diaryPrompt}\n\nCharacter background (read-only context):\n${background}\n\nSecrets (read-only context — do NOT include these in diary output):\n${secrets}\n\nDiary to compress:\n${diary}`;
+
+		try {
+			const compressed = runLlmCompress(
+				"You are a diary compressor. Output only the compressed diary text. Do not use tools or take any other actions.",
+				diaryInput,
+			);
+			writeFileSync(diaryPath, compressed + "\n");
+			console.error(`=== ${dreamType} dream — diary complete ===`);
+		} catch (err) {
+			console.error(`Diary compression failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	} else {
+		console.error("=== No diary file, skipping diary compression ===");
 	}
 
-	const diary = readFileSync(diaryPath, "utf-8");
-	const diaryLines = diary.split("\n").length;
+	// --- Call 2: Secrets compression ---
+	if (secrets) {
+		const secretsPromptFile = promptPath(`${dreamType === "normal" ? "dream" : dreamType === "good" ? "good-dream" : "nightmare"}-secrets-prompt.txt`);
+		if (!existsSync(secretsPromptFile)) {
+			console.error(`Error: ${secretsPromptFile} not found`);
+			process.exit(1);
+		}
 
-	// Choose the right prompt
-	const promptFilename = dreamType === "good" ? "good-dream-prompt.txt" : "dream-prompt.txt";
-	const promptPath = `/opt/devcontainer/${promptFilename}`;
-	if (!existsSync(promptPath)) {
-		console.error(`Error: ${promptFilename} not found`);
-		process.exit(1);
-	}
+		const secretsLines = secrets.split("\n").length;
+		console.error(`=== ${dreamType} dream — secrets (${secretsLines} lines) ===`);
 
-	console.error(
-		`=== ${dreamType === "good" ? "Good dream" : "Dreaming"} (diary at ${diaryLines} lines) ===`,
-	);
+		const secretsPrompt = readFileSync(secretsPromptFile, "utf-8");
+		// Feed: prompt + background (context) + diary (read-only context) + secrets
+		// Re-read diary in case it was just compressed
+		const currentDiary = readIfExists(diaryPath);
+		const secretsInput = `${secretsPrompt}\n\nCharacter background (read-only context):\n${background}\n\nDiary (read-only context — do NOT include diary content in secrets output):\n${currentDiary}\n\nSecrets to compress:\n${secrets}`;
 
-	const prompt = readFileSync(promptPath, "utf-8");
-	const background = existsSync(backgroundPath) ? readFileSync(backgroundPath, "utf-8") : "";
-	const secrets = existsSync(secretsPath) ? readFileSync(secretsPath, "utf-8") : "";
-
-	const input = `${prompt}\n${background}\n${secrets}\n${diary}`;
-
-	try {
-		const compressed = execSync(
-			`claude -p --model opus --system-prompt "You are a diary compressor. Output only the compressed diary text. Make SECRETS.md more truthful. Do not use tools or take any other actions."`,
-			{
-				input,
-				encoding: "utf-8",
-				timeout: 120000,
-				maxBuffer: 1024 * 1024,
-			},
-		);
-
-		writeFileSync(diaryPath, compressed.trim() + "\n");
-		console.error(`=== ${dreamType === "good" ? "Good dream" : "Dream"} complete ===`);
-	} catch (err) {
-		console.error(`Dream failed: ${err instanceof Error ? err.message : String(err)}`);
+		try {
+			const compressed = runLlmCompress(
+				"You are a secrets compressor. Output only the compressed secrets text. Do not use tools or take any other actions.",
+				secretsInput,
+			);
+			writeFileSync(secretsPath, compressed + "\n");
+			console.error(`=== ${dreamType} dream — secrets complete ===`);
+		} catch (err) {
+			console.error(`Secrets compression failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	} else {
+		console.error("=== No secrets file, skipping secrets compression ===");
 	}
 }
 

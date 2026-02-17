@@ -44,6 +44,46 @@ if [ "${1:-}" = "--session" ]; then
     --output-format stream-json --verbose \
     --model sonnet <<< "$PROMPT" \
     2>&1 | python3 -u /opt/devcontainer/stream-demux.py /opt/logs
+
+  # --- Dinner: post-session reflection via Opus ---
+  echo "=== Starting dinner (post-session reflection) ==="
+  THOUGHTS_LOG="/opt/logs/thoughts.log"
+  DIARY_FILE="/work/me/DIARY.md"
+  VALUES_FILE="/work/me/background.md"
+
+  if [ -f "$THOUGHTS_LOG" ]; then
+    # Extract session report: last 500 lines of thoughts.log
+    SESSION_REPORT=$(tail -n 500 "$THOUGHTS_LOG")
+
+    DIARY_CONTENT=""
+    if [ -f "$DIARY_FILE" ]; then
+      DIARY_CONTENT=$(cat "$DIARY_FILE")
+    fi
+
+    VALUES_CONTENT=""
+    if [ -f "$VALUES_FILE" ]; then
+      VALUES_CONTENT=$(cat "$VALUES_FILE")
+    fi
+
+    # Build dinner prompt from template
+    DINNER_PROMPT=$(</opt/devcontainer/dinner-prompt.txt)
+    DINNER_PROMPT="${DINNER_PROMPT//\{\{SESSION_REPORT\}\}/${SESSION_REPORT}}"
+    DINNER_PROMPT="${DINNER_PROMPT//\{\{DIARY\}\}/${DIARY_CONTENT}}"
+    DINNER_PROMPT="${DINNER_PROMPT//\{\{VALUES\}\}/${VALUES_CONTENT}}"
+
+    DINNER_OUTPUT=$(claude -p --model opus \
+      --system-prompt "You are a diary writer. Output only the updated diary text. Do not use tools or take any other actions." \
+      <<< "$DINNER_PROMPT" 2>/dev/null) || true
+
+    if [ -n "$DINNER_OUTPUT" ]; then
+      echo "$DINNER_OUTPUT" > "$DIARY_FILE"
+      echo "=== Dinner complete — diary updated ==="
+    else
+      echo "=== Dinner failed — diary unchanged ==="
+    fi
+  else
+    echo "=== No thoughts.log found, skipping dinner ==="
+  fi
 fi
 
 # ── Setup mode (default): runs once as container CMD ──────────────────
