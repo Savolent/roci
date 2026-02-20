@@ -54,6 +54,9 @@ if [ ! -d "${CHAR_DIR}/me" ]; then
   exit 1
 fi
 
+# Update shared sm-cli
+git -C "${SCRIPT_DIR}/shared-resources/sm-cli" pull --ff-only 2>/dev/null || true
+
 # Build image from .devcontainer/
 echo "=== Building ${IMAGE} image ==="
 docker build -t "${IMAGE}" -f "${SCRIPT_DIR}/.devcontainer/Dockerfile" "${SCRIPT_DIR}/.devcontainer/"
@@ -110,10 +113,8 @@ if docker ps -q -f "name=^${CONTAINER_NAME}$" | grep -q .; then
 fi
 
 if docker ps -aq -f "name=^${CONTAINER_NAME}$" | grep -q .; then
-  echo "=== Container ${CONTAINER_NAME} exists but is stopped, starting ==="
-  docker start "${CONTAINER_NAME}"
-  follow_logs
-  exit 0
+  echo "=== Container ${CONTAINER_NAME} exists but is stopped, recreating ==="
+  docker rm "${CONTAINER_NAME}"
 fi
 
 # Start new container

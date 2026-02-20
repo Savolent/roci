@@ -8,12 +8,6 @@ DIARY_LIMIT="${DIARY_LIMIT:-80}"
 if [ "${1:-}" = "--session" ]; then
   export PATH="/home/node/.bun/bin:/work/workspace/bin:${PATH}"
 
-  # --- Ensure sm-cli is up to date ---
-  SM_CLI_DIR="/work/workspace/bin"
-  if [ -d "$SM_CLI_DIR/.git" ]; then
-    git -C "$SM_CLI_DIR" pull --ff-only 2>/dev/null || true
-  fi
-
   # --- Dream: compress diary between sessions (TypeScript harness) ---
   bun run /opt/harness/src/dream.ts /work/me/credentials.txt --diary-limit "$DIARY_LIMIT"
 
@@ -83,6 +77,7 @@ if [ "${1:-}" = "--session" ]; then
   else
     echo "=== No thoughts.log found, skipping dinner ==="
   fi
+  exit 0
 fi
 
 # ── Setup mode (default): runs once as container CMD ──────────────────
