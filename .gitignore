@@ -1,5 +1,6 @@
 .ds_store
 __pycache__/
 players/*/workspace/bin/
+shared-resources/sm-cli
 players/*/logs
 players/*/sm

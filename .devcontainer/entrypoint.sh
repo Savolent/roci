@@ -12,8 +12,6 @@ if [ "${1:-}" = "--session" ]; then
   SM_CLI_DIR="/work/workspace/bin"
   if [ -d "$SM_CLI_DIR/.git" ]; then
     git -C "$SM_CLI_DIR" pull --ff-only 2>/dev/null || true
-  elif [ ! -x "$SM_CLI_DIR/sm" ]; then
-    git clone https://github.com/vcarl/sm-cli.git "$SM_CLI_DIR" 2>/dev/null || true
   fi
 
   # --- Dream: compress diary between sessions (TypeScript harness) ---
