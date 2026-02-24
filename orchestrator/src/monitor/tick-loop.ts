@@ -7,7 +7,7 @@ import { runSubagent } from "../ai/subagent.js"
 import { detectInterrupts } from "./interrupt.js"
 import { isStepComplete, buildStateSnapshot } from "./plan-tracker.js"
 import type { Plan } from "../ai/types.js"
-import { logToConsole, logStateBar, logPlanTransition, logStepResult } from "../logging/console-renderer.js"
+import { logToConsole, logStateBar, logPlanTransition, logStepResult, formatError } from "../logging/console-renderer.js"
 
 export interface TickLoopConfig {
   char: CharacterConfig
@@ -262,9 +262,9 @@ export const tickLoop = (config: TickLoopConfig) =>
             Effect.tap((report) => Ref.set(subagentReportRef, report)),
             Effect.catchAll((e) =>
               Effect.gen(function* () {
-                const errorReport = `[SUBAGENT ERROR] ${e}`
-                yield* Ref.set(subagentReportRef, errorReport)
-                yield* logToConsole(config.char.name, "monitor", `Subagent error: ${e}`)
+                const msg = formatError(e)
+                yield* Ref.set(subagentReportRef, `[SUBAGENT ERROR] ${msg}`)
+                yield* logToConsole(config.char.name, "error", msg)
                 return ""
               }),
             ),
@@ -281,9 +281,8 @@ export const tickLoop = (config: TickLoopConfig) =>
     yield* Effect.repeat(
       tick.pipe(
         Effect.catchAll((e) => {
-          const msg = e instanceof Error ? e.message : String(e)
-          const detail = (e as any)?.cause ? ` (cause: ${(e as any).cause})` : ""
-          return logToConsole(config.char.name, "monitor", `Tick error: ${msg}${detail}`)
+          const msg = formatError(e)
+          return logToConsole(config.char.name, "error", `Tick error: ${msg}`)
         }),
       ),
       Schedule.spaced(Duration.seconds(config.tickIntervalSeconds)),

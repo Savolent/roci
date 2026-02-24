@@ -1,7 +1,7 @@
 import { Effect, Ref, Stream } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog, type LogEntry } from "./log-writer.js"
-import { logToConsole } from "./console-renderer.js"
+import { logCharThought, logCharAction, logCharResult } from "./console-renderer.js"
 
 /** Patterns matching sm CLI commands that are social (chat/forum). */
 const SOCIAL_COMMAND_PATTERN = /^sm\s+(chat|forum)\b/
@@ -47,10 +47,8 @@ export const demuxEvent = (
             yield* Ref.update(textAccumulator, (arr) => [...arr, block.text as string])
           }
 
-          // Surface condensed thought to console (first line, max 120 chars)
-          const text = block.text as string
-          const firstLine = text.split("\n")[0].slice(0, 120)
-          yield* logToConsole(char.name, "think", `  ${firstLine}`)
+          // Narrative: character's voice
+          yield* logCharThought(char.name, block.text as string)
         } else if (block.type === "tool_use") {
           const toolName = block.name as string
           const input = block.input as Record<string, unknown> | undefined
@@ -73,9 +71,9 @@ export const demuxEvent = (
             yield* log.word(char, entry)
           }
 
-          // Surface sm commands to console
+          // Narrative: character runs a command
           if (toolName === "Bash" && command.startsWith("sm ")) {
-            yield* logToConsole(char.name, "action", `  $ ${command}`)
+            yield* logCharAction(char.name, command)
           }
         }
       }
@@ -89,16 +87,15 @@ export const demuxEvent = (
         content: event.message,
       })
 
-      // Surface tool results to console (first line of content, max 100 chars)
+      // Narrative: what the game returned
       const message = event.message as Record<string, unknown> | undefined
       const resultContent = message?.content as Array<Record<string, unknown>> | undefined
       if (resultContent) {
         for (const block of resultContent) {
           if (block.type === "tool_result") {
             const text = (block.content as string) ?? ""
-            const firstLine = text.split("\n")[0].slice(0, 100)
-            if (firstLine) {
-              yield* logToConsole(char.name, "result", `  => ${firstLine}`)
+            if (text.trim()) {
+              yield* logCharResult(text)
             }
           }
         }
