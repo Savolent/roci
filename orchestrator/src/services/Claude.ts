@@ -142,10 +142,12 @@ export const ClaudeLive = Layer.effect(
               ? writeTempFile("system", opts.systemPrompt)
               : null
 
+            const outputFormat = opts.outputFormat ?? "stream-json"
             const claudeArgs: string[] = [
               "--model", opts.model,
-              "--output-format", opts.outputFormat ?? "stream-json",
+              "--output-format", outputFormat,
               "--dangerously-skip-permissions",
+              ...(outputFormat === "stream-json" ? ["--verbose"] : []),
             ]
 
             // Copy files into container
