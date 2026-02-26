@@ -57,9 +57,24 @@ function cleanupTempFile(filePath: string): void {
   }
 }
 
-/** Escape single quotes for use inside a bash single-quoted string */
+/**
+ * Return a shell-safe literal using $'...' ANSI-C quoting.
+ * Escapes backslashes, single quotes, and control characters so the
+ * result can be embedded directly in a bash command string.
+ */
 function shellEscape(s: string): string {
-  return s.replace(/'/g, "'\\''")
+  let escaped = ""
+  for (const ch of s) {
+    const code = ch.charCodeAt(0)
+    if (ch === "\\") escaped += "\\\\"
+    else if (ch === "'") escaped += "\\'"
+    else if (ch === "\n") escaped += "\\n"
+    else if (ch === "\r") escaped += "\\r"
+    else if (ch === "\t") escaped += "\\t"
+    else if (code < 0x20 || code === 0x7f) escaped += `\\x${code.toString(16).padStart(2, "0")}`
+    else escaped += ch
+  }
+  return `$'${escaped}'`
 }
 
 export const ClaudeLive = Layer.effect(
@@ -89,9 +104,9 @@ export const ClaudeLive = Layer.effect(
             let shellCmd: string
             if (opts.systemPrompt) {
               const sysFile = writeTempFile("system", opts.systemPrompt)
-              shellCmd = `unset CLAUDECODE; cat '${shellEscape(promptFile)}' | claude -p ${args.join(" ")} --system-prompt "$(cat '${shellEscape(sysFile)}')" ; r=$?; rm -rf '${shellEscape(path.dirname(sysFile))}'; exit $r`
+              shellCmd = `unset CLAUDECODE; cat ${shellEscape(promptFile)} | claude -p ${args.join(" ")} --system-prompt "$(cat ${shellEscape(sysFile)})" ; r=$?; rm -rf ${shellEscape(path.dirname(sysFile))}; exit $r`
             } else {
-              shellCmd = `unset CLAUDECODE; cat '${shellEscape(promptFile)}' | claude -p ${args.join(" ")}`
+              shellCmd = `unset CLAUDECODE; cat ${shellEscape(promptFile)} | claude -p ${args.join(" ")}`
             }
 
             const cmd = Command.make("bash", "-c", shellCmd)
@@ -149,7 +164,7 @@ export const ClaudeLive = Layer.effect(
           ]
 
           if (opts.systemPrompt) {
-            extraArgs.push("--system-prompt", `'${shellEscape(opts.systemPrompt)}'`)
+            extraArgs.push("--system-prompt", shellEscape(opts.systemPrompt))
           }
 
           // Pipe prompt via stdin to docker exec -i → run-step.sh → claude -p

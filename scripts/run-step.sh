@@ -19,11 +19,26 @@ if [ ! -d "$PLAYER_DIR" ]; then
   exit 1
 fi
 
+# Ensure sm is on PATH via /bin symlink
+if [ ! -L /bin/sm ] && [ -x /work/sm-cli/sm ]; then
+  ln -sf /work/sm-cli/sm /bin/sm
+fi
+export PATH="/bin:$PATH"
+
 cd "$PLAYER_DIR"
 
-exec claude -p \
-  --add-dir /work/shared \
-  --add-dir /work/sm \
-  --permission-mode bypassPermissions \
-  --no-session-persistence \
-  "$@"
+# Build claude args
+CLAUDE_ARGS=(
+  -p
+  --add-dir /work/shared
+  --add-dir /work/sm-cli
+  --permission-mode bypassPermissions
+  --no-session-persistence
+)
+
+# If ROCI_SYSTEM_PROMPT env var is set, use it as --system-prompt
+if [ -n "${ROCI_SYSTEM_PROMPT:-}" ]; then
+  CLAUDE_ARGS+=(--system-prompt "$ROCI_SYSTEM_PROMPT")
+fi
+
+exec claude "${CLAUDE_ARGS[@]}" "$@"

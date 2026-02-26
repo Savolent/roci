@@ -81,7 +81,7 @@ const ensureSharedContainer = (config: { projectRoot: string; imageName: string 
         },
         {
           host: path.resolve(config.projectRoot, "shared-resources/sm-cli"),
-          container: "/work/sm",
+          container: "/work/sm-cli",
         },
         {
           host: path.resolve(config.projectRoot, ".claude"),
