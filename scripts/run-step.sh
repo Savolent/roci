@@ -19,11 +19,7 @@ if [ ! -d "$PLAYER_DIR" ]; then
   exit 1
 fi
 
-# Ensure sm is on PATH via /bin symlink
-if [ ! -L /bin/sm ] && [ -x /work/sm-cli/sm ]; then
-  ln -sf /work/sm-cli/sm /bin/sm
-fi
-export PATH="/bin:$PATH"
+# sm symlink is created at container startup (orchestrator.ts)
 
 cd "$PLAYER_DIR"
 

@@ -1,7 +1,8 @@
-import { Effect, Ref, Stream } from "effect"
-import { Claude, type ClaudeModel, ClaudeError } from "../services/Claude.js"
-import { CharacterLog, type LogEntry } from "../logging/log-writer.js"
+import { Effect, Ref } from "effect"
+import { Claude, ClaudeError } from "../services/Claude.js"
+import { CharacterLog } from "../logging/log-writer.js"
 import { demuxStream } from "../logging/log-demux.js"
+import { logStderr, logStreamEvent } from "../logging/console-renderer.js"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import type { PlanStep } from "./types.js"
 import type { GameState, Situation } from "../../../harness/src/types.js"
@@ -139,23 +140,56 @@ export const runSubagent = (input: SubagentInput) =>
       model: input.step.model,
     })
 
-    const stream = yield* claude.execInContainer({
-      containerId: input.containerId,
-      playerName: input.playerName,
-      prompt,
-      model: input.step.model,
-      systemPrompt: input.systemPrompt,
-      outputFormat: "stream-json",
-      env: input.containerEnv,
-    })
-
     // Accumulate text blocks for the completion report
     const textRef = yield* Ref.make<string[]>([])
 
-    // Demux the stream into log files, accumulating text
-    yield* demuxStream(input.char, stream, "subagent", textRef)
+    // Scoped block keeps the process alive through stream consumption + waitForExit
+    const { exitCode, stderr } = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const { stream, waitForExit } = yield* claude.execInContainer({
+          containerId: input.containerId,
+          playerName: input.playerName,
+          prompt,
+          model: input.step.model,
+          systemPrompt: input.systemPrompt,
+          outputFormat: "stream-json",
+          env: input.containerEnv,
+        })
+
+        // Demux the stream into log files, accumulating text
+        yield* demuxStream(input.char, stream, "subagent", textRef)
+
+        // Wait for process exit and capture stderr
+        return yield* waitForExit
+      }),
+    )
+
+    if (stderr.trim()) {
+      yield* logStderr(input.char.name, stderr)
+    }
+
+    if (exitCode !== 0) {
+      yield* log.action(input.char, {
+        timestamp: new Date().toISOString(),
+        source: "orchestrator",
+        character: input.char.name,
+        type: "subagent_error",
+        task: input.step.task,
+        exitCode,
+        stderr: stderr.trim().slice(0, 1000),
+      })
+      return yield* Effect.fail(
+        new ClaudeError(
+          `Subagent exited with code ${exitCode}: ${stderr.trim().slice(0, 500)}`,
+        ),
+      )
+    }
 
     const collectedText = yield* Ref.get(textRef)
+
+    if (collectedText.length === 0) {
+      yield* logStreamEvent(input.char.name, "warn", "Subagent produced no text output")
+    }
 
     yield* log.action(input.char, {
       timestamp: new Date().toISOString(),

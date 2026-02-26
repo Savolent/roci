@@ -66,15 +66,40 @@ export const logStepResult = (
     console.log(`${ts()} [${marker}] Step ${stepIndex + 1}: ${result.reason}`)
   })
 
+// ── Type-tagged stream event output (used by log-demux) ──
+
+/** Log a type-tagged stream event to console. */
+export const logStreamEvent = (
+  character: string,
+  tag: string,
+  message: string,
+) =>
+  Effect.sync(() => {
+    const prefix = `${ts()} [${character}:${tag}]`
+    for (const line of message.split("\n")) {
+      console.log(`${prefix} ${line}`)
+    }
+  })
+
+/** Log stderr lines to console. */
+export const logStderr = (character: string, stderr: string) =>
+  Effect.sync(() => {
+    const prefix = `${ts()} [${character}:stderr]`
+    for (const line of stderr.split("\n")) {
+      if (line.trim()) {
+        console.log(`${prefix} ${line}`)
+      }
+    }
+  })
+
 // ── Character narrative lines (used by log-demux) ────────
 
 /** Character thought — the LLM's voice IS the character. */
 export const logCharThought = (character: string, text: string) =>
   Effect.sync(() => {
-    // Take first meaningful line, max 140 chars
     const firstLine = text.split("\n").find((l) => l.trim().length > 0)?.trim() ?? ""
     if (firstLine) {
-      console.log(`${ts()} ${character}: "${firstLine.slice(0, 140)}"`)
+      console.log(`${ts()} ${character}: "${firstLine}"`)
     }
   })
 
@@ -89,7 +114,7 @@ export const logCharResult = (text: string) =>
   Effect.sync(() => {
     const firstLine = text.split("\n").find((l) => l.trim().length > 0)?.trim() ?? ""
     if (firstLine) {
-      console.log(`${ts()}   > ${firstLine.slice(0, 120)}`)
+      console.log(`${ts()}   > ${firstLine}`)
     }
   })
 

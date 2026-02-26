@@ -1,7 +1,7 @@
 import { Effect, Ref, Stream } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog, type LogEntry } from "./log-writer.js"
-import { logCharThought, logCharAction, logCharResult, logToConsole } from "./console-renderer.js"
+import { logCharThought, logCharAction, logCharResult, logStreamEvent } from "./console-renderer.js"
 
 /** Patterns matching sm CLI commands that are social (chat/forum). */
 const SOCIAL_COMMAND_PATTERN = /^sm\s+(chat|forum)\b/
@@ -13,6 +13,16 @@ function parseStreamJson(line: string): Record<string, unknown> | null {
   } catch {
     return null
   }
+}
+
+/** Format tool input for console display. */
+function formatToolInput(toolName: string, input: Record<string, unknown> | undefined): string {
+  if (!input) return toolName
+  if (toolName === "Bash") {
+    const cmd = (input.command as string) ?? ""
+    return `${toolName}: ${cmd}`
+  }
+  return `${toolName}: ${JSON.stringify(input)}`
 }
 
 /** Classify and route a single stream-json event to the appropriate log streams. */
@@ -30,7 +40,10 @@ export const demuxEvent = (
     if (type === "assistant") {
       const message = event.message as Record<string, unknown> | undefined
       const content = message?.content as Array<Record<string, unknown>> | undefined
-      if (!content) return
+      if (!content) {
+        yield* logStreamEvent(char.name, "assistant", "(no content)")
+        return
+      }
 
       for (const block of content) {
         if (block.type === "text") {
@@ -46,6 +59,9 @@ export const demuxEvent = (
           if (textAccumulator) {
             yield* Ref.update(textAccumulator, (arr) => [...arr, block.text as string])
           }
+
+          // Type-tagged console output
+          yield* logStreamEvent(char.name, "assistant:text", block.text as string)
 
           // Narrative: character's voice
           yield* logCharThought(char.name, block.text as string)
@@ -71,18 +87,27 @@ export const demuxEvent = (
             yield* log.word(char, entry)
           }
 
+          // Type-tagged console output
+          yield* logStreamEvent(char.name, "assistant:tool_use", formatToolInput(toolName, input))
+
           // Narrative: character runs a command
           if (toolName === "Bash" && command.startsWith("sm ")) {
             yield* logCharAction(char.name, command)
           }
+        } else {
+          // Unknown content block type
+          yield* logStreamEvent(char.name, `assistant:${block.type}`, JSON.stringify(block))
         }
       }
     } else if (type === "result") {
-      // End-of-run result event — surface errors
       const isError = event.is_error as boolean | undefined
       const result = event.result as string | undefined
+
+      // Type-tagged console output
+      yield* logStreamEvent(char.name, "result", `${isError ? "ERROR" : "ok"}: ${result ?? ""}`)
+
       if (isError && result) {
-        yield* logToConsole(char.name, "error", `Subagent error: ${result}`)
+        yield* logStreamEvent(char.name, "error", `Subagent error: ${result}`)
       }
     } else if (type === "user") {
       // tool_result — log to actions
@@ -94,25 +119,33 @@ export const demuxEvent = (
         content: event.message,
       })
 
-      // Narrative: what the game returned
+      // Type-tagged console output — summarize tool result content
       const message = event.message as Record<string, unknown> | undefined
       const resultContent = message?.content as Array<Record<string, unknown>> | undefined
       if (resultContent) {
         for (const block of resultContent) {
           if (block.type === "tool_result") {
             const text = (block.content as string) ?? ""
+            yield* logStreamEvent(char.name, "user:tool_result", text)
             if (text.trim()) {
               yield* logCharResult(text)
             }
           }
         }
+      } else {
+        yield* logStreamEvent(char.name, "user:tool_result", "(no content)")
       }
+    } else if (type === "system") {
+      yield* logStreamEvent(char.name, "system", JSON.stringify(event))
+    } else {
+      // Unknown event type — still show it
+      yield* logStreamEvent(char.name, `unknown:${type ?? "undefined"}`, JSON.stringify(event))
     }
   })
 
 /**
  * Process a stream of stream-json lines, routing each event to the
- * appropriate JSONL log files.
+ * appropriate JSONL log files.  Every raw line is also appended to stream.jsonl.
  */
 export const demuxStream = (
   char: CharacterConfig,
@@ -122,8 +155,22 @@ export const demuxStream = (
 ) =>
   lines.pipe(
     Stream.filter((line) => line.trim().length > 0),
-    Stream.map(parseStreamJson),
-    Stream.filter((event): event is Record<string, unknown> => event !== null),
-    Stream.mapEffect((event) => demuxEvent(char, event, source, textAccumulator)),
+    Stream.mapEffect((line) =>
+      Effect.gen(function* () {
+        const log = yield* CharacterLog
+
+        // Raw capture — every line goes to stream.jsonl verbatim
+        yield* log.raw(char, line)
+
+        // Try to parse as JSON
+        const event = parseStreamJson(line)
+        if (event) {
+          yield* demuxEvent(char, event, source, textAccumulator)
+        } else {
+          // Non-JSON line — log as [raw] so it's visible
+          yield* logStreamEvent(char.name, "raw", line)
+        }
+      }),
+    ),
     Stream.runDrain,
   )

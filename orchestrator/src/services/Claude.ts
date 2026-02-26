@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Stream, Chunk } from "effect"
+import { Context, Effect, Fiber, Layer, Scope, Stream, Chunk } from "effect"
 import { Command, CommandExecutor } from "@effect/platform"
 import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs"
 
@@ -24,7 +24,7 @@ export class Claude extends Context.Tag("Claude")<
       maxTurns?: number
     }) => Effect.Effect<string, ClaudeError>
 
-    /** Run claude -p inside a Docker container via run-step.sh, returning a stream of output lines. */
+    /** Run claude -p inside a Docker container via run-step.sh, returning a stream + exit handle. */
     readonly execInContainer: (opts: {
       containerId: string
       playerName: string
@@ -34,7 +34,14 @@ export class Claude extends Context.Tag("Claude")<
       outputFormat?: "text" | "stream-json"
       allowedTools?: string[]
       env?: Record<string, string>
-    }) => Effect.Effect<Stream.Stream<string, ClaudeError>, ClaudeError>
+    }) => Effect.Effect<
+      {
+        stream: Stream.Stream<string, ClaudeError>
+        waitForExit: Effect.Effect<{ exitCode: number; stderr: string }, ClaudeError>
+      },
+      ClaudeError,
+      Scope.Scope
+    >
   }
 >() {}
 
@@ -184,22 +191,37 @@ export const ClaudeLive = Layer.effect(
             Command.stdin(promptStream),
           )
 
-          return Stream.unwrapScoped(
-            Effect.gen(function* () {
-              const process = yield* executor.start(cmd)
+          const process = yield* executor.start(cmd)
 
-              return process.stdout.pipe(
-                Stream.decodeText(),
-                Stream.splitLines,
-                Stream.filter((line) => line.trim().length > 0),
-                Stream.catchAll((e) => Stream.fail(new ClaudeError("Stream read error", e))),
-              )
-            }).pipe(
-              Effect.catchAll((e) => Effect.fail(new ClaudeError("Process start failed", e))),
+          // Fork stderr drain immediately so it runs in parallel with stdout consumption
+          const stderrFiber = yield* process.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runCollect,
+            Effect.map(Chunk.join("")),
+          ).pipe(Effect.fork)
+
+          const stream = process.stdout.pipe(
+            Stream.decodeText(),
+            Stream.splitLines,
+            Stream.filter((line) => line.trim().length > 0),
+            Stream.catchAll((e) => Stream.fail(new ClaudeError("Stream read error", e))),
+          )
+
+          const waitForExit = Effect.gen(function* () {
+            const stderr = yield* Fiber.join(stderrFiber)
+            const exitCode = yield* process.exitCode
+            return { exitCode: Number(exitCode), stderr }
+          }).pipe(
+            Effect.mapError((e) =>
+              e instanceof ClaudeError ? e : new ClaudeError("Wait for exit failed", e),
             ),
           )
+
+          return { stream, waitForExit }
         }).pipe(
-          Effect.mapError((e) => new ClaudeError("Container exec failed", e)),
+          Effect.mapError((e) =>
+            e instanceof ClaudeError ? e : new ClaudeError("Container exec failed", e),
+          ),
         ),
     })
   }),

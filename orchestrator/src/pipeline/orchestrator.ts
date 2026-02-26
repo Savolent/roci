@@ -117,6 +117,14 @@ const ensureSharedContainer = (config: { projectRoot: string; imageName: string 
       catch: (e) => new DockerError("Failed to start shared container", e),
     })
 
+    // Create sm symlink (runs as root so it can write to /usr/local/bin)
+    yield* Effect.try({
+      try: () => {
+        execSync(`docker exec -u root ${containerId} ln -sf /work/sm-cli/sm /usr/local/bin/sm`, { stdio: "pipe" })
+      },
+      catch: (e) => new DockerError("Failed to create sm symlink", e),
+    })
+
     yield* logToConsole("orchestrator", "main", `Shared container ${SHARED_CONTAINER_NAME} created and started`)
 
     return containerId
