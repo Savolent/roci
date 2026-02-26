@@ -64,81 +64,66 @@ const startCommand = Command.make("start", { characters: startCharacters, tickIn
   }),
 ).pipe(Command.withDescription("Start character(s) running"))
 
-// --- stop command ---
-const stopCharacter = Args.text({ name: "character" })
+const SHARED_CONTAINER = "roci-crew"
 
-const stopCommand = Command.make("stop", { character: stopCharacter }, (args) =>
+// --- stop command ---
+const stopCommand = Command.make("stop", {}, () =>
   Effect.gen(function* () {
     const docker = yield* Docker
-    const containerName = `roci-${args.character}`
-    yield* docker.stop(containerName)
-    yield* logToConsole(args.character, "cli", "Stopped")
+    yield* docker.stop(SHARED_CONTAINER)
+    yield* logToConsole("orchestrator", "cli", "Shared container stopped")
   }),
-).pipe(Command.withDescription("Stop a character's container"))
+).pipe(Command.withDescription("Stop the shared roci-crew container"))
 
 // --- pause command ---
-const pauseCharacter = Args.text({ name: "character" })
-
-const pauseCommand = Command.make("pause", { character: pauseCharacter }, (args) =>
+const pauseCommand = Command.make("pause", {}, () =>
   Effect.gen(function* () {
     const docker = yield* Docker
-    yield* docker.pause(`roci-${args.character}`)
-    yield* logToConsole(args.character, "cli", "Paused")
+    yield* docker.pause(SHARED_CONTAINER)
+    yield* logToConsole("orchestrator", "cli", "Shared container paused")
   }),
-).pipe(Command.withDescription("Pause a character's container"))
+).pipe(Command.withDescription("Pause the shared roci-crew container"))
 
 // --- resume command ---
-const resumeCharacter = Args.text({ name: "character" })
-
-const resumeCommand = Command.make("resume", { character: resumeCharacter }, (args) =>
+const resumeCommand = Command.make("resume", {}, () =>
   Effect.gen(function* () {
     const docker = yield* Docker
-    yield* docker.resume(`roci-${args.character}`)
-    yield* logToConsole(args.character, "cli", "Resumed")
+    yield* docker.resume(SHARED_CONTAINER)
+    yield* logToConsole("orchestrator", "cli", "Shared container resumed")
   }),
-).pipe(Command.withDescription("Resume a paused character's container"))
+).pipe(Command.withDescription("Resume the shared roci-crew container"))
 
 // --- status command ---
 const statusCommand = Command.make("status", {}, () =>
   Effect.gen(function* () {
     const docker = yield* Docker
-    const containers = yield* docker.listByLabel("roci-crew")
+    const info = yield* docker.status(SHARED_CONTAINER)
 
-    if (containers.length === 0) {
-      yield* Effect.log("No roci-crew containers found.")
+    if (!info) {
+      yield* Effect.log("No roci-crew container found.")
       return
     }
 
-    yield* Effect.log("Character containers:")
-    for (const c of containers) {
-      const name = c.name.replace(/^roci-/, "")
-      yield* Effect.log(`  ${name}: ${c.status} (${c.id.slice(0, 12)})`)
-    }
+    yield* Effect.log(`roci-crew: ${info.status} (${info.id.slice(0, 12)})`)
   }),
-).pipe(Command.withDescription("Show status of all character containers"))
+).pipe(Command.withDescription("Show status of the shared roci-crew container"))
 
 // --- auth command ---
-const authCharacter = Args.text({ name: "character" })
-
-const authCommand = Command.make("auth", { character: authCharacter }, (args) =>
+const authCommand = Command.make("auth", {}, () =>
   Effect.gen(function* () {
-    const containerName = `roci-${args.character}`
-    yield* logToConsole(args.character, "cli", "Starting interactive auth...")
-    yield* Effect.log(`Run: docker exec -it ${containerName} sh -c 'claude && touch /tmp/auth-ready'`)
+    yield* logToConsole("orchestrator", "cli", "Starting interactive auth...")
+    yield* Effect.log(`Run: docker exec -it ${SHARED_CONTAINER} sh -c 'claude && touch /tmp/auth-ready'`)
   }),
-).pipe(Command.withDescription("Authenticate Claude in a character's container"))
+).pipe(Command.withDescription("Authenticate Claude in the shared container"))
 
 // --- destroy command ---
-const destroyCharacter = Args.text({ name: "character" })
-
-const destroyCommand = Command.make("destroy", { character: destroyCharacter }, (args) =>
+const destroyCommand = Command.make("destroy", {}, () =>
   Effect.gen(function* () {
     const docker = yield* Docker
-    const containerName = `roci-${args.character}`
-    yield* docker.remove(containerName)
-    yield* logToConsole(args.character, "cli", "Destroyed")
+    yield* docker.remove(SHARED_CONTAINER)
+    yield* logToConsole("orchestrator", "cli", "Shared container destroyed")
   }),
-).pipe(Command.withDescription("Remove a character's container entirely"))
+).pipe(Command.withDescription("Remove the shared roci-crew container"))
 
 // --- logs command ---
 const logsCharacter = Args.text({ name: "character" })

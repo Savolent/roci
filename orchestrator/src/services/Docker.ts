@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Stream, Chunk } from "effect"
 import { Command, CommandExecutor } from "@effect/platform"
+import { execSync } from "node:child_process"
 
 export interface ContainerInfo {
   id: string
@@ -99,10 +100,15 @@ export const DockerLive = Layer.effect(
 
     return Docker.of({
       build: (tag, dockerfilePath, contextPath) =>
-        runDockerCommand(
-          ["build", "-t", tag, "-f", dockerfilePath, contextPath],
-          executor,
-        ).pipe(Effect.asVoid),
+        Effect.try({
+          try: () => {
+            execSync(
+              `docker build -t ${tag} -f ${dockerfilePath} ${contextPath}`,
+              { stdio: "inherit" },
+            )
+          },
+          catch: (e) => new DockerError("Docker build failed", e),
+        }),
 
       create: (opts) =>
         Effect.gen(function* () {

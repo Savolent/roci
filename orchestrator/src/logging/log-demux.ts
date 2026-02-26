@@ -1,7 +1,7 @@
 import { Effect, Ref, Stream } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog, type LogEntry } from "./log-writer.js"
-import { logCharThought, logCharAction, logCharResult } from "./console-renderer.js"
+import { logCharThought, logCharAction, logCharResult, logToConsole } from "./console-renderer.js"
 
 /** Patterns matching sm CLI commands that are social (chat/forum). */
 const SOCIAL_COMMAND_PATTERN = /^sm\s+(chat|forum)\b/
@@ -76,6 +76,13 @@ export const demuxEvent = (
             yield* logCharAction(char.name, command)
           }
         }
+      }
+    } else if (type === "result") {
+      // End-of-run result event — surface errors
+      const isError = event.is_error as boolean | undefined
+      const result = event.result as string | undefined
+      if (isError && result) {
+        yield* logToConsole(char.name, "error", `Subagent error: ${result}`)
       }
     } else if (type === "user") {
       // tool_result — log to actions

@@ -9,6 +9,8 @@ import type { GameState, Situation } from "../../../harness/src/types.js"
 export interface SubagentInput {
   char: CharacterConfig
   containerId: string
+  playerName: string
+  systemPrompt: string  // in-game-CLAUDE.md content, passed via --system-prompt
   step: PlanStep
   state: GameState
   situation: Situation
@@ -138,8 +140,10 @@ export const runSubagent = (input: SubagentInput) =>
 
     const stream = yield* claude.execInContainer({
       containerId: input.containerId,
+      playerName: input.playerName,
       prompt,
       model: input.step.model,
+      systemPrompt: input.systemPrompt,
       outputFormat: "stream-json",
     })
 

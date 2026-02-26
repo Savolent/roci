@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Stream, Chunk } from "effect"
 import { Command, CommandExecutor } from "@effect/platform"
-import { writeFileSync, readFileSync, unlinkSync, mkdtempSync } from "node:fs"
+import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs"
+
 import { tmpdir } from "node:os"
 import * as path from "node:path"
 
@@ -23,9 +24,10 @@ export class Claude extends Context.Tag("Claude")<
       maxTurns?: number
     }) => Effect.Effect<string, ClaudeError>
 
-    /** Run claude -p inside a Docker container, returning a stream of output lines. */
+    /** Run claude -p inside a Docker container via run-step.sh, returning a stream of output lines. */
     readonly execInContainer: (opts: {
       containerId: string
+      playerName: string
       prompt: string
       model: ClaudeModel
       systemPrompt?: string
@@ -135,80 +137,44 @@ export const ClaudeLive = Layer.effect(
         ),
 
       execInContainer: (opts) =>
-        Effect.scoped(
-          Effect.gen(function* () {
-            const promptFile = writeTempFile("prompt", opts.prompt)
-            const systemFile = opts.systemPrompt
-              ? writeTempFile("system", opts.systemPrompt)
-              : null
+        Effect.gen(function* () {
+          const outputFormat = opts.outputFormat ?? "stream-json"
 
-            const outputFormat = opts.outputFormat ?? "stream-json"
-            const claudeArgs: string[] = [
-              "--model", opts.model,
-              "--output-format", outputFormat,
-              "--dangerously-skip-permissions",
-              ...(outputFormat === "stream-json" ? ["--verbose"] : []),
-            ]
+          // Extra flags forwarded to run-step.sh → claude -p
+          const extraArgs: string[] = [
+            "--model", opts.model,
+            "--output-format", outputFormat,
+            ...(outputFormat === "stream-json" ? ["--verbose"] : []),
+          ]
 
-            // Copy files into container
-            const setup: string[] = [
-              `docker cp '${shellEscape(promptFile)}' '${opts.containerId}:/tmp/_roci_prompt.txt'`,
-            ]
-            if (systemFile) {
-              setup.push(
-                `docker cp '${shellEscape(systemFile)}' '${opts.containerId}:/tmp/_roci_system.txt'`,
+          if (opts.systemPrompt) {
+            extraArgs.push("--system-prompt", `'${shellEscape(opts.systemPrompt)}'`)
+          }
+
+          // Pipe prompt via stdin to docker exec -i → run-step.sh → claude -p
+          const innerCmd = `/opt/scripts/run-step.sh ${opts.playerName} ${extraArgs.join(" ")}`
+          const promptStream = Stream.encodeText(Stream.make(opts.prompt))
+          const cmd = Command.make(
+            "docker", "exec", "-i", opts.containerId,
+            "bash", "-c", innerCmd,
+          ).pipe(Command.stdin(promptStream))
+
+          return Stream.unwrapScoped(
+            Effect.gen(function* () {
+              const process = yield* executor.start(cmd)
+
+              return process.stdout.pipe(
+                Stream.decodeText(),
+                Stream.splitLines,
+                Stream.filter((line) => line.trim().length > 0),
+                Stream.catchAll((e) => Stream.fail(new ClaudeError("Stream read error", e))),
               )
-              claudeArgs.push("--system-prompt", '"$(cat /tmp/_roci_system.txt)"')
-            }
-
-            // Run claude inside container, piping prompt via stdin
-            const execCmd = `docker exec ${opts.containerId} bash -c 'cat /tmp/_roci_prompt.txt | claude -p ${claudeArgs.join(" ")}'`
-            setup.push(execCmd)
-
-            const shellCmd = setup.join(" && ")
-            // Redirect stderr to a temp file so we can reliably capture it
-            // (reading process.stderr after stdout drains loses data)
-            const stderrFile = `/tmp/_roci_stderr_${Date.now()}.txt`
-            const fullCmd = `${shellCmd} 2>${stderrFile}`
-            const cmd = Command.make("bash", "-c", fullCmd)
-            const process = yield* executor.start(cmd)
-
-            // Collect ALL stdout inside the scope so the process stays alive.
-            const stdoutLines = yield* process.stdout.pipe(
-              Stream.decodeText(),
-              Stream.splitLines,
-              Stream.filter((line) => line.trim().length > 0),
-              Stream.runCollect,
-            )
-
-            const exitCode = yield* process.exitCode
-
-            // Read stderr from the temp file
-            let stderr = ""
-            try {
-              stderr = readFileSync(stderrFile, "utf-8")
-              unlinkSync(stderrFile)
-            } catch {
-              // stderr file might not exist if the command never ran
-            }
-
-            cleanupTempFile(promptFile)
-            if (systemFile) cleanupTempFile(systemFile)
-
-            if (exitCode !== 0) {
-              return yield* Effect.fail(
-                new ClaudeError(
-                  `Container exec exited with code ${exitCode}.\nCommand: ${shellCmd.slice(0, 300)}\nStderr: ${stderr.trim().slice(0, 500)}\nStdout lines: ${Chunk.size(stdoutLines)}`,
-                ),
-              )
-            }
-
-            return Stream.fromChunk(stdoutLines)
-          }),
-        ).pipe(
-          Effect.mapError((e) =>
-            e instanceof ClaudeError ? e : new ClaudeError("Container exec failed", e),
-          ),
+            }).pipe(
+              Effect.catchAll((e) => Effect.fail(new ClaudeError("Process start failed", e))),
+            ),
+          )
+        }).pipe(
+          Effect.mapError((e) => new ClaudeError("Container exec failed", e)),
         ),
     })
   }),

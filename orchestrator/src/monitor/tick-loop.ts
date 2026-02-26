@@ -1,4 +1,5 @@
 import { Effect, Ref, Fiber, Schedule, Duration } from "effect"
+import { FileSystem } from "@effect/platform"
 import { GameApi } from "../services/GameApi.js"
 import { CharacterFs, type CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog } from "../logging/log-writer.js"
@@ -8,10 +9,12 @@ import { detectInterrupts } from "./interrupt.js"
 import { isStepComplete, buildStateSnapshot } from "./plan-tracker.js"
 import type { Plan } from "../ai/types.js"
 import { logToConsole, logStateBar, logPlanTransition, logStepResult, formatError } from "../logging/console-renderer.js"
+import * as path from "node:path"
 
 export interface TickLoopConfig {
   char: CharacterConfig
   containerId: string
+  playerName: string
   tickIntervalSeconds: number
   projectRoot: string
 }
@@ -249,10 +252,16 @@ export const tickLoop = (config: TickLoopConfig) =>
 
           const personality = yield* charFs.readBackground(config.char)
           const values = yield* charFs.readValues(config.char)
+          const fs = yield* FileSystem.FileSystem
+          const systemPrompt = yield* fs.readFileString(
+            path.resolve(config.projectRoot, "in-game-CLAUDE.md"),
+          ).pipe(Effect.catchAll(() => Effect.succeed("")))
 
           const fiber = yield* runSubagent({
             char: config.char,
             containerId: config.containerId,
+            playerName: config.playerName,
+            systemPrompt,
             step: planStep,
             state,
             situation,
