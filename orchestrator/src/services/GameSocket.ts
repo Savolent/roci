@@ -4,6 +4,7 @@ import type { Credentials, GameState, NearbyPlayer } from "../../../harness/src/
 import type {
   GameEvent,
   LoggedInEvent,
+  WelcomeEvent,
   ClientMessage,
 } from "../../../harness/src/ws-types.js"
 import { parseGameEvent } from "../../../harness/src/ws-types.js"
@@ -22,6 +23,8 @@ export interface GameSocketConnection {
   readonly events: Queue.Queue<GameEvent>
   /** Initial game state from the logged_in event. */
   readonly initialState: GameState
+  /** Ticks per second, from the server welcome event. */
+  readonly tickRateHz: number
 }
 
 export class GameSocket extends Context.Tag("GameSocket")<
@@ -80,6 +83,9 @@ export const makeGameSocketLive = () =>
 
             // Track whether we've logged in at least once
             const hasLoggedIn = yield* Ref.make(false)
+
+            // Tick rate from welcome event (ticks per second)
+            const tickRateRef = yield* Ref.make(1) // default 1 Hz until welcome arrives
 
             // Flag to stop reconnect loop on finalization
             const closed = yield* Ref.make(false)
@@ -145,6 +151,8 @@ export const makeGameSocketLive = () =>
                     if (event.type === "welcome") {
                       clearTimeout(timeout)
                       socket.removeListener("message", handler)
+                      const welcomePayload = (event as WelcomeEvent).payload
+                      Effect.runSync(Ref.set(tickRateRef, welcomePayload.tick_rate))
                       resume(Effect.succeed(undefined))
                     }
                   } catch {
@@ -155,8 +163,9 @@ export const makeGameSocketLive = () =>
                 socket.on("message", handler)
               })
 
+              const currentTickRate = yield* Ref.get(tickRateRef)
               yield* Effect.sync(() =>
-                console.log(`[${characterName}:ws] Received welcome, sending login...`),
+                console.log(`[${characterName}:ws] Received welcome (tick_rate=${currentTickRate}Hz), sending login...`),
               )
 
               // Send login
@@ -245,7 +254,8 @@ export const makeGameSocketLive = () =>
               }),
             )
 
-            return { events, initialState }
+            const tickRateHz = yield* Ref.get(tickRateRef)
+            return { events, initialState, tickRateHz }
           }),
 
         send: (msg) =>

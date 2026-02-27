@@ -3,7 +3,7 @@ import { FileSystem } from "@effect/platform"
 import { GameApi } from "../services/GameApi.js"
 import { CharacterFs, type CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog } from "../logging/log-writer.js"
-import { brainPlan, brainInterrupt, brainEvaluate } from "../ai/brain.js"
+import { brainPlan, brainInterrupt, brainEvaluate, type StepTiming } from "../ai/brain.js"
 import { runSubagent } from "../ai/subagent.js"
 import { detectInterrupts } from "./interrupt.js"
 import { isStepComplete, buildStateSnapshot } from "./plan-tracker.js"
@@ -21,6 +21,7 @@ export interface EventLoopConfig {
   containerEnv?: Record<string, string>
   events: Queue.Queue<GameEvent>
   initialState: GameState
+  tickRateHz: number
 }
 
 export const eventLoop = (config: EventLoopConfig) =>
@@ -37,6 +38,9 @@ export const eventLoop = (config: EventLoopConfig) =>
     const stepStartTickRef = yield* Ref.make(0)
     const subagentReportRef = yield* Ref.make("")
     const previousFailureRef = yield* Ref.make<string | null>(null)
+    const stepTimingHistoryRef = yield* Ref.make<StepTiming[]>([])
+    const lastProcessedTickRef = yield* Ref.make(0)
+    const tickIntervalSec = 1 / config.tickRateHz
 
     // --- New refs for WS-driven state ---
     const gameStateRef = yield* Ref.make<GameState>(config.initialState)
@@ -76,6 +80,26 @@ export const eventLoop = (config: EventLoopConfig) =>
         yield* Ref.set(subagentFiberRef, null)
       }
     })
+
+    /** Record step timing and log it. Returns the StepTiming entry. */
+    const recordStepTiming = (task: string, goal: string, ticksBudgeted: number) =>
+      Effect.gen(function* () {
+        const startTick = yield* Ref.get(stepStartTickRef)
+        const currentTick = yield* Ref.get(tickCountRef)
+        const ticksConsumed = currentTick - startTick
+        const overrun = ticksConsumed > ticksBudgeted
+        const timing: StepTiming = { task, goal, ticksBudgeted, ticksConsumed, overrun }
+
+        yield* Ref.update(stepTimingHistoryRef, (history) => [...history.slice(-9), timing])
+
+        const budgetLabel = overrun
+          ? `OVERRUN by ${ticksConsumed - ticksBudgeted}`
+          : "within budget"
+        yield* logToConsole(config.char.name, "monitor",
+          `Step took ${ticksConsumed}/${ticksBudgeted} ticks (${budgetLabel})`)
+
+        return timing
+      })
 
     /** Handle critical interrupts: kill subagent, ask brain for new plan. */
     const handleInterrupt = (criticals: Alert[], state: GameState, situation: Situation, briefing: string) =>
@@ -129,6 +153,7 @@ export const eventLoop = (config: EventLoopConfig) =>
 
         if (plan && step < plan.steps.length) {
           const currentStep = plan.steps[step]
+          const timing = yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
 
           // Use fresh REST state for evaluation (more complete than WS state)
           const freshState = yield* api.collectState().pipe(
@@ -140,6 +165,9 @@ export const eventLoop = (config: EventLoopConfig) =>
             step: currentStep,
             subagentReport: report,
             state: freshState,
+            ticksConsumed: timing.ticksConsumed,
+            ticksBudgeted: timing.ticksBudgeted,
+            tickIntervalSec,
           }).pipe(
             Effect.catchAll((e) =>
               Effect.succeed({
@@ -201,11 +229,13 @@ export const eventLoop = (config: EventLoopConfig) =>
           if (midRunResult.complete) {
             yield* logToConsole(config.char.name, "monitor",
               `Step ${step + 1} condition met mid-run: ${midRunResult.reason}`)
+            yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
             yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
             yield* Ref.set(subagentFiberRef, null)
             yield* Ref.set(stepRef, step + 1)
           } else if (tickCount - startTick >= currentStep.timeoutTicks) {
             yield* logToConsole(config.char.name, "monitor", `Step ${step + 1} timed out — interrupting`)
+            yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
             yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
             yield* Ref.set(subagentFiberRef, null)
             yield* Ref.set(stepRef, step + 1)
@@ -228,6 +258,7 @@ export const eventLoop = (config: EventLoopConfig) =>
           const values = yield* charFs.readValues(config.char)
           const previousFailure = yield* Ref.get(previousFailureRef)
           const recentChat = yield* Ref.get(chatContextRef)
+          const stepTimingHistory = yield* Ref.get(stepTimingHistoryRef)
 
           const newPlan = yield* brainPlan.execute({
             state,
@@ -238,6 +269,8 @@ export const eventLoop = (config: EventLoopConfig) =>
             values,
             previousFailure: previousFailure ?? undefined,
             recentChat: recentChat.length > 0 ? recentChat : undefined,
+            stepTimingHistory: stepTimingHistory.length > 0 ? stepTimingHistory : undefined,
+            tickIntervalSec,
           })
 
           yield* Ref.set(previousFailureRef, null)
@@ -303,6 +336,7 @@ export const eventLoop = (config: EventLoopConfig) =>
             situation,
             personality,
             values,
+            tickRateHz: config.tickRateHz,
           }).pipe(
             Effect.tap((report) => Ref.set(subagentReportRef, report)),
             Effect.catchAll((e) =>
@@ -354,27 +388,37 @@ export const eventLoop = (config: EventLoopConfig) =>
         yield* maybeSpawnSubagent(state, situation)
       })
 
-    /** Process a tick event: heartbeat, timeout checks. */
+    /** Process a tick event: heartbeat, timeout checks, and proactive plan/spawn. */
     const handleTick = (tick: number) =>
       Effect.gen(function* () {
+        // Detect tick skips (processing took longer than tick interval)
+        const lastTick = yield* Ref.get(lastProcessedTickRef)
+        if (lastTick > 0 && tick - lastTick > 1) {
+          yield* logToConsole(config.char.name, "monitor",
+            `Skipped ${tick - lastTick - 1} ticks (processing took longer than tick interval)`)
+        }
+        yield* Ref.set(lastProcessedTickRef, tick)
         yield* Ref.set(tickCountRef, tick)
 
         const state = yield* Ref.get(gameStateRef)
         const situation = api.classify(state)
+        const briefing = api.briefing(state, situation)
+
+        // Check mid-run completion and timeouts
         yield* checkMidRun(state, situation)
 
-        // Also check if subagent finished (in case no state_update arrived)
+        // Check if subagent finished
         const currentFiber = yield* Ref.get(subagentFiberRef)
         if (currentFiber) {
           const poll = yield* Fiber.poll(currentFiber)
           if (poll._tag === "Some") {
             yield* evaluateCompletedSubagent(state)
-            // After evaluation, might need plan/spawn
-            const briefing = api.briefing(state, situation)
-            yield* maybeRequestPlan(state, situation, briefing)
-            yield* maybeSpawnSubagent(state, situation)
           }
         }
+
+        // Proactive plan/spawn cycle — drives forward progress even without state_update
+        yield* maybeRequestPlan(state, situation, briefing)
+        yield* maybeSpawnSubagent(state, situation)
       })
 
     /** Process a combat_update event: immediate interrupt if not already handling. */
@@ -442,6 +486,21 @@ export const eventLoop = (config: EventLoopConfig) =>
     // --- Event loop ---
 
     yield* logToConsole(config.char.name, "monitor", "Starting event loop (WebSocket-driven)...")
+
+    // Initial planning on startup — don't wait for first event
+    yield* Effect.gen(function* () {
+      const state = yield* Ref.get(gameStateRef)
+      const situation = api.classify(state)
+      const briefing = api.briefing(state, situation)
+      yield* logStateBar(config.char.name, state, situation)
+      yield* maybeRequestPlan(state, situation, briefing)
+      yield* maybeSpawnSubagent(state, situation)
+    }).pipe(
+      Effect.catchAll((e) => {
+        const msg = formatError(e)
+        return logToConsole(config.char.name, "error", `Initial planning error: ${msg}`)
+      }),
+    )
 
     yield* Effect.forever(
       Effect.gen(function* () {

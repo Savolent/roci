@@ -18,6 +18,7 @@ export interface SubagentInput {
   situation: Situation
   personality: string  // character background snippet
   values: string       // character values snippet
+  tickRateHz: number   // ticks per second from server
 }
 
 interface SubagentResult {
@@ -53,6 +54,8 @@ function buildSubagentPrompt(input: SubagentInput): string {
   }
 
   const taskInstruction = taskPrompts[step.task] ?? taskPrompts.explore
+  const tickIntervalSec = 1 / input.tickRateHz
+  const budgetSeconds = Math.round(step.timeoutTicks * tickIntervalSec)
 
   return `# Your Mission
 
@@ -63,6 +66,11 @@ ${step.goal}
 
 ## Success Condition
 ${step.successCondition}
+
+## Time Budget
+You have ${step.timeoutTicks} game ticks (~${budgetSeconds}s) to complete this task.
+Work efficiently — execute commands, check results, and move on. Do not deliberate excessively.
+If you are running low on time, wrap up with a COMPLETION REPORT of what you accomplished.
 
 ## Current State
 ${briefing}

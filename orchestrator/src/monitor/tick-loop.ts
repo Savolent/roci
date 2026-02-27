@@ -3,7 +3,7 @@ import { FileSystem } from "@effect/platform"
 import { GameApi } from "../services/GameApi.js"
 import { CharacterFs, type CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog } from "../logging/log-writer.js"
-import { brainPlan, brainInterrupt, brainEvaluate } from "../ai/brain.js"
+import { brainPlan, brainInterrupt, brainEvaluate, type StepTiming } from "../ai/brain.js"
 import { runSubagent } from "../ai/subagent.js"
 import { detectInterrupts } from "./interrupt.js"
 import { isStepComplete, buildStateSnapshot } from "./plan-tracker.js"
@@ -18,6 +18,7 @@ export interface TickLoopConfig {
   tickIntervalSeconds: number
   projectRoot: string
   containerEnv?: Record<string, string>
+  tickRateHz?: number  // from server; defaults to 1/tickIntervalSeconds
 }
 
 export const tickLoop = (config: TickLoopConfig) =>
@@ -33,6 +34,26 @@ export const tickLoop = (config: TickLoopConfig) =>
     const stepStartTickRef = yield* Ref.make(0)
     const subagentReportRef = yield* Ref.make("")
     const previousFailureRef = yield* Ref.make<string | null>(null)
+    const stepTimingHistoryRef = yield* Ref.make<StepTiming[]>([])
+    const tickRateHz = config.tickRateHz ?? (1 / config.tickIntervalSeconds)
+    const tickIntervalSec = 1 / tickRateHz
+
+    /** Record step timing and log it. */
+    const recordStepTiming = (task: string, goal: string, ticksBudgeted: number) =>
+      Effect.gen(function* () {
+        const startTick = yield* Ref.get(stepStartTickRef)
+        const currentTick = yield* Ref.get(tickCountRef)
+        const ticksConsumed = currentTick - startTick
+        const overrun = ticksConsumed > ticksBudgeted
+        const timing: StepTiming = { task, goal, ticksBudgeted, ticksConsumed, overrun }
+        yield* Ref.update(stepTimingHistoryRef, (history) => [...history.slice(-9), timing])
+        const budgetLabel = overrun
+          ? `OVERRUN by ${ticksConsumed - ticksBudgeted}`
+          : "within budget"
+        yield* logToConsole(config.char.name, "monitor",
+          `Step took ${ticksConsumed}/${ticksBudgeted} ticks (${budgetLabel})`)
+        return timing
+      })
 
     const tick = Effect.gen(function* () {
       const tickCount = yield* Ref.updateAndGet(tickCountRef, (n) => n + 1)
@@ -105,6 +126,7 @@ export const tickLoop = (config: TickLoopConfig) =>
 
           if (plan && step < plan.steps.length) {
             const currentStep = plan.steps[step]
+            const timing = yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
 
             // Re-poll state after subagent's last action
             const freshState = yield* api.collectState()
@@ -115,6 +137,9 @@ export const tickLoop = (config: TickLoopConfig) =>
               step: currentStep,
               subagentReport: report,
               state: freshState,
+              ticksConsumed: timing.ticksConsumed,
+              ticksBudgeted: timing.ticksBudgeted,
+              tickIntervalSec,
             }).pipe(
               Effect.catchAll((e) =>
                 Effect.succeed({
@@ -173,6 +198,7 @@ export const tickLoop = (config: TickLoopConfig) =>
             if (midRunResult.complete) {
               yield* logToConsole(config.char.name, "monitor",
                 `Step ${step + 1} condition met mid-run: ${midRunResult.reason}`)
+              yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
               yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
               yield* Ref.set(subagentFiberRef, null)
               yield* Ref.set(stepRef, step + 1)
@@ -180,6 +206,7 @@ export const tickLoop = (config: TickLoopConfig) =>
             // Check timeout
             else if (tickCount - startTick >= currentStep.timeoutTicks) {
               yield* logToConsole(config.char.name, "monitor", `Step ${step + 1} timed out — interrupting`)
+              yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
               yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
               yield* Ref.set(subagentFiberRef, null)
               yield* Ref.set(stepRef, step + 1)
@@ -201,6 +228,7 @@ export const tickLoop = (config: TickLoopConfig) =>
         const values = yield* charFs.readValues(config.char)
 
         const previousFailure = yield* Ref.get(previousFailureRef)
+        const stepTimingHistory = yield* Ref.get(stepTimingHistoryRef)
 
         const newPlan = yield* brainPlan.execute({
           state,
@@ -210,6 +238,8 @@ export const tickLoop = (config: TickLoopConfig) =>
           background,
           values,
           previousFailure: previousFailure ?? undefined,
+          stepTimingHistory: stepTimingHistory.length > 0 ? stepTimingHistory : undefined,
+          tickIntervalSec,
         })
 
         yield* Ref.set(previousFailureRef, null)
@@ -269,6 +299,7 @@ export const tickLoop = (config: TickLoopConfig) =>
             situation,
             personality,
             values,
+            tickRateHz,
           }).pipe(
             Effect.tap((report) => Ref.set(subagentReportRef, report)),
             Effect.catchAll((e) =>

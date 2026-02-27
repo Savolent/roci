@@ -5,6 +5,14 @@ import type { Plan, PlanStep } from "./types.js"
 import type { GameState, Situation, Alert, ChatMessage } from "../../../harness/src/types.js"
 import { type StepCompletionResult, buildStateSnapshot } from "../monitor/plan-tracker.js"
 
+export interface StepTiming {
+  task: string
+  goal: string
+  ticksBudgeted: number
+  ticksConsumed: number
+  overrun: boolean
+}
+
 export interface BrainPlanInput {
   state: GameState
   situation: Situation
@@ -14,6 +22,8 @@ export interface BrainPlanInput {
   values: string
   previousFailure?: string  // what went wrong with the last plan, if replanning after failure
   recentChat?: ChatMessage[]  // recent chat/DM messages from the game
+  stepTimingHistory?: StepTiming[]  // recent step timing data for planning
+  tickIntervalSec: number  // seconds per tick (1 / tickRateHz)
 }
 
 export interface BrainInterruptInput {
@@ -29,9 +39,13 @@ export interface BrainEvaluateInput {
   step: PlanStep
   subagentReport: string
   state: GameState
+  ticksConsumed: number
+  ticksBudgeted: number
+  tickIntervalSec: number
 }
 
-const PLAN_SYSTEM_PROMPT = `You are a strategic planning AI for a character in the SpaceMolt MMO.
+function buildPlanSystemPrompt(tickIntervalSec: number): string {
+  return `You are a strategic planning AI for a character in the SpaceMolt MMO.
 You analyze the current game state and produce a structured plan.
 Your output must be ONLY valid JSON matching this schema:
 {
@@ -52,8 +66,10 @@ Guidelines:
 - Use "sonnet" for tasks requiring judgment (combat, social interaction, complex trading)
 - Keep plans 2-6 steps long. Don't over-plan.
 - Success conditions should be observable from game state (e.g., "cargo_used > 90% of capacity", "docked_at_base is not null", "current_system == X")
-- Set realistic timeoutTicks (1 tick ≈ 30 seconds typically)
+- 1 tick ≈ ${tickIntervalSec}s (from server tick_rate). Set realistic timeoutTicks based on task complexity and recent step performance.
+- Agents that exceed their tick budget are penalized in evaluation. Set realistic timeoutTicks.
 - Consider the character's personality and values when planning`
+}
 
 const INTERRUPT_SYSTEM_PROMPT = `You are a strategic planning AI reacting to an urgent situation in SpaceMolt MMO.
 A critical alert has been detected and the current plan needs to be revised.
@@ -96,6 +112,10 @@ export const brainPlan: AiFunction<BrainPlanInput, Plan, Claude, ClaudeError> = 
         ? `\n## Recent Chat\n${input.recentChat.map((m) => `[${m.channel}] ${m.sender}: ${m.content}`).join("\n")}\n\nConsider whether any of these messages warrant a response or affect your plans.\n`
         : ""
 
+      const timingSection = input.stepTimingHistory && input.stepTimingHistory.length > 0
+        ? `\n## Recent Step Performance\n${input.stepTimingHistory.map((h) => `[${h.task}] "${h.goal}" — ${h.ticksConsumed}/${h.ticksBudgeted} ticks${h.overrun ? " OVERRUN" : ""}`).join("\n")}\n\nUse this data to set realistic timeoutTicks for upcoming steps.\n`
+        : ""
+
       const prompt = `# Current Game State
 
 ## Briefing
@@ -103,7 +123,7 @@ ${input.briefing}
 
 ## Alerts
 ${input.situation.alerts.map((a) => `[${a.priority}] ${a.message}`).join("\n") || "None"}
-${failureSection}${chatSection}
+${failureSection}${chatSection}${timingSection}
 ## Character Background
 ${input.background}
 
@@ -126,7 +146,7 @@ Output ONLY the JSON plan.`
       const output = yield* claude.invoke({
         prompt,
         model: "opus",
-        systemPrompt: PLAN_SYSTEM_PROMPT,
+        systemPrompt: buildPlanSystemPrompt(input.tickIntervalSec),
         outputFormat: "text",
         maxTurns: 1,
       })
@@ -194,6 +214,14 @@ export const brainEvaluate: AiFunction<BrainEvaluateInput, StepCompletionResult,
       const claude = yield* Claude
       const stateSnapshot = buildStateSnapshot(input.state)
 
+      const secondsConsumed = Math.round(input.ticksConsumed * input.tickIntervalSec)
+      const secondsBudgeted = Math.round(input.ticksBudgeted * input.tickIntervalSec)
+      const overrunDelta = input.ticksConsumed - input.ticksBudgeted
+      const timingLine = `Timing: consumed ${input.ticksConsumed} of ${input.ticksBudgeted} budgeted ticks (~${secondsConsumed}s of ~${secondsBudgeted}s).`
+      const overrunWarning = overrunDelta > 0
+        ? `\nWARNING: exceeded tick budget by ${overrunDelta} ticks. Factor this into your evaluation.`
+        : ""
+
       const output = yield* claude.invoke({
         prompt: `You assigned this task to a sub-agent:
 Goal: "${input.step.goal}"
@@ -204,6 +232,8 @@ ${input.subagentReport.slice(-2000)}
 
 Current game state after the sub-agent finished:
 ${JSON.stringify(stateSnapshot)}
+
+${timingLine}${overrunWarning}
 
 Evaluate: did the sub-agent accomplish the goal? Respond with ONLY JSON:
 {"complete": true/false, "reason": "brief explanation of what happened and why you consider this complete or not"}`,
