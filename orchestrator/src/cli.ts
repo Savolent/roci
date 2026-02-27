@@ -8,6 +8,7 @@ import { CharacterFs, CharacterFsLive, makeCharacterConfig } from "./services/Ch
 import { makePromptTemplatesLive } from "./services/PromptTemplates.js"
 import { makeGameApiLive } from "./services/GameApi.js"
 import { Claude, ClaudeLive } from "./services/Claude.js"
+import { makeGameSocketLive } from "./services/GameSocket.js"
 import { makeCharacterLogLive } from "./logging/log-writer.js"
 import { runOrchestrator } from "./pipeline/orchestrator.js"
 import { logToConsole } from "./logging/console-renderer.js"
@@ -179,6 +180,7 @@ const serviceLayer = Layer.mergeAll(
   CharacterFsLive,
   makePromptTemplatesLive(PROJECT_ROOT),
   makeGameApiLive(),
+  makeGameSocketLive(),
   makeCharacterLogLive(PROJECT_ROOT),
 )
 

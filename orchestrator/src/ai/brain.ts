@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { Claude, ClaudeError } from "../services/Claude.js"
 import type { AiFunction } from "./AiFunction.js"
 import type { Plan, PlanStep } from "./types.js"
-import type { GameState, Situation, Alert } from "../../../harness/src/types.js"
+import type { GameState, Situation, Alert, ChatMessage } from "../../../harness/src/types.js"
 import { type StepCompletionResult, buildStateSnapshot } from "../monitor/plan-tracker.js"
 
 export interface BrainPlanInput {
@@ -13,6 +13,7 @@ export interface BrainPlanInput {
   background: string
   values: string
   previousFailure?: string  // what went wrong with the last plan, if replanning after failure
+  recentChat?: ChatMessage[]  // recent chat/DM messages from the game
 }
 
 export interface BrainInterruptInput {
@@ -91,6 +92,10 @@ export const brainPlan: AiFunction<BrainPlanInput, Plan, Claude, ClaudeError> = 
         ? `\n## Previous Plan Failed\n${input.previousFailure}\n\nYour previous plan hit a problem. Account for this when making a new plan — you may need to retry the failed step, try a different approach, or adjust the overall strategy.\n`
         : ""
 
+      const chatSection = input.recentChat && input.recentChat.length > 0
+        ? `\n## Recent Chat\n${input.recentChat.map((m) => `[${m.channel}] ${m.sender}: ${m.content}`).join("\n")}\n\nConsider whether any of these messages warrant a response or affect your plans.\n`
+        : ""
+
       const prompt = `# Current Game State
 
 ## Briefing
@@ -98,7 +103,7 @@ ${input.briefing}
 
 ## Alerts
 ${input.situation.alerts.map((a) => `[${a.priority}] ${a.message}`).join("\n") || "None"}
-${failureSection}
+${failureSection}${chatSection}
 ## Character Background
 ${input.background}
 

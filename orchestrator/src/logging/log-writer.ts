@@ -5,7 +5,7 @@ import type { CharacterConfig } from "../services/CharacterFs.js"
 
 export interface LogEntry {
   timestamp: string
-  source: "subagent" | "brain" | "monitor" | "dream" | "dinner" | "orchestrator"
+  source: "subagent" | "brain" | "monitor" | "dream" | "dinner" | "orchestrator" | "ws"
   character: string
   [key: string]: unknown
 }

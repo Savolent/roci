@@ -204,6 +204,8 @@ export interface ActiveMission {
 }
 
 export interface ChatMessage {
+	id?: string;
+	sender_id?: string;
 	sender: string;
 	channel: string;
 	content: string;
