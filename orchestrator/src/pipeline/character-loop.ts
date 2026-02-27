@@ -36,7 +36,7 @@ export const characterLoop = (config: CharacterLoopConfig & { containerId: strin
 
       // 1. Connect to game via WebSocket
       const creds = yield* charFs.readCredentials(config.char)
-      const { events, initialState, tickRateHz } = yield* gameSocket.connect(creds, config.char.name)
+      const { events, initialState, tickIntervalSec } = yield* gameSocket.connect(creds, config.char.name)
       yield* logToConsole(config.char.name, "orchestrator",
         `Connected via WebSocket as ${initialState.player.username}`)
 
@@ -71,7 +71,7 @@ export const characterLoop = (config: CharacterLoopConfig & { containerId: strin
         containerEnv: config.containerEnv,
         events,
         initialState,
-        tickRateHz,
+        tickIntervalSec,
       })
     }),
   )

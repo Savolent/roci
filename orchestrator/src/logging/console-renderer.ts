@@ -3,9 +3,45 @@ import type { GameState, Situation } from "../../../harness/src/types.js"
 import type { Plan } from "../ai/types.js"
 import type { StepCompletionResult } from "../monitor/plan-tracker.js"
 
-function ts(): string {
-  const now = new Date()
-  return now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+// ── Per-player ANSI colors ───────────────────────────────
+
+const RESET = "\x1b[0m"
+const DIM = "\x1b[2m"
+const BOLD = "\x1b[1m"
+
+/** Stable color palette — each player gets a distinct hue. */
+const PLAYER_COLORS: string[] = [
+  "\x1b[36m",  // cyan
+  "\x1b[33m",  // yellow
+  "\x1b[35m",  // magenta
+  "\x1b[32m",  // green
+  "\x1b[34m",  // blue
+  "\x1b[91m",  // bright red
+]
+
+const colorCache = new Map<string, string>()
+let nextColorIdx = 0
+
+function colorFor(character: string): string {
+  let c = colorCache.get(character)
+  if (!c) {
+    c = PLAYER_COLORS[nextColorIdx % PLAYER_COLORS.length]
+    nextColorIdx++
+    colorCache.set(character, c)
+  }
+  return c
+}
+
+/** Colorized character tag: "[name:source]" — also usable from sync code. */
+export function tag(character: string, source: string): string {
+  const c = colorFor(character)
+  return `${c}[${character}:${source}]${RESET}`
+}
+
+/** Colorized character name for narrative lines. */
+function name(character: string): string {
+  const c = colorFor(character)
+  return `${c}${BOLD}${character}${RESET}`
 }
 
 // ── System messages (monitor, brain, errors) ──────────────
@@ -17,7 +53,7 @@ export const logToConsole = (
   message: string,
 ) =>
   Effect.sync(() => {
-    const prefix = `${ts()} [${character}:${source}]`
+    const prefix = tag(character, source)
     for (const line of message.split("\n")) {
       console.log(`${prefix} ${line}`)
     }
@@ -25,24 +61,12 @@ export const logToConsole = (
 
 // ── Storytelling output (character voice) ─────────────────
 
-/** State bar as a character section header. */
+/** State bar — suppressed from stdout, data still available via log files. */
 export const logStateBar = (
-  character: string,
-  state: GameState,
+  _character: string,
+  _state: GameState,
   _situation: Situation,
-) =>
-  Effect.sync(() => {
-    const loc = state.poi?.name ?? state.player.current_poi
-    const sys = state.system?.name ?? state.player.current_system
-    const fuel = `fuel ${Math.round((state.ship.fuel / state.ship.max_fuel) * 100)}%`
-    const hull = `hull ${Math.round((state.ship.hull / state.ship.max_hull) * 100)}%`
-    const cargo = `cargo ${state.ship.cargo_used}/${state.ship.cargo_capacity}`
-    const cr = `${state.player.credits.toLocaleString()} cr`
-    const status = state.player.docked_at_base ? "DOCKED" : state.inCombat ? "COMBAT" : state.travelProgress ? "TRANSIT" : "SPACE"
-
-    console.log("")
-    console.log(`${ts()} == ${character} @ ${loc} (${sys}) == ${fuel} | ${hull} | ${cargo} | ${cr} | ${status}`)
-  })
+) => Effect.void
 
 /** Step transition header when spawning a subagent. */
 export const logPlanTransition = (
@@ -52,18 +76,20 @@ export const logPlanTransition = (
 ) =>
   Effect.sync(() => {
     const step = plan.steps[stepIndex]
-    console.log(`${ts()} -- Step ${stepIndex + 1}/${plan.steps.length}: ${step.task} -- ${step.goal}`)
+    const c = colorFor(character)
+    console.log(`${c}>> subagent start${RESET} — Step ${stepIndex + 1}/${plan.steps.length}: [${step.task}] ${step.goal} (${step.model})`)
   })
 
 /** Step completion result. */
 export const logStepResult = (
-  _character: string,
+  character: string,
   stepIndex: number,
   result: StepCompletionResult,
 ) =>
   Effect.sync(() => {
-    const marker = result.complete ? "OK" : "FAILED"
-    console.log(`${ts()} [${marker}] Step ${stepIndex + 1}: ${result.reason}`)
+    const c = colorFor(character)
+    const marker = result.complete ? `${c}OK${RESET}` : `\x1b[31mFAILED${RESET}`
+    console.log(`${c}<< subagent done${RESET} — [${marker}] Step ${stepIndex + 1}: ${result.reason}`)
   })
 
 // ── Type-tagged stream event output (used by log-demux) ──
@@ -71,51 +97,78 @@ export const logStepResult = (
 /** Log a type-tagged stream event to console. */
 export const logStreamEvent = (
   character: string,
-  tag: string,
+  source: string,
   message: string,
 ) =>
   Effect.sync(() => {
-    const prefix = `${ts()} [${character}:${tag}]`
+    const prefix = tag(character, source)
     for (const line of message.split("\n")) {
       console.log(`${prefix} ${line}`)
     }
   })
 
-/** Log stderr lines to console. */
-export const logStderr = (character: string, stderr: string) =>
+/** Log stderr lines — suppressed from stdout. */
+export const logStderr = (_character: string, _stderr: string) => Effect.void
+
+// ── Character narrative lines (used by log-demux) ────────
+
+/** Character thought — the LLM's voice IS the character. Full text shown. */
+export const logCharThought = (character: string, text: string) =>
   Effect.sync(() => {
-    const prefix = `${ts()} [${character}:stderr]`
-    for (const line of stderr.split("\n")) {
-      if (line.trim()) {
+    const lines = text.split("\n").filter((l) => l.trim().length > 0)
+    if (lines.length > 0) {
+      const prefix = `${name(character)}:`
+      for (const line of lines) {
+        console.log(`${prefix} ${line.trim()}`)
+      }
+    }
+  })
+
+/** Extended thinking block from the LLM. */
+export const logThinking = (character: string, text: string) =>
+  Effect.sync(() => {
+    const lines = text.split("\n").filter((l) => l.trim().length > 0)
+    if (lines.length > 0) {
+      const prefix = tag(character, "thinking")
+      for (const line of lines) {
+        console.log(`${prefix} ${DIM}${line.trim()}${RESET}`)
+      }
+    }
+  })
+
+/** Character action — suppressed from stdout. */
+export const logCharAction = (_character: string, _command: string) => Effect.void
+
+/** Tool result — first 10 + last 5 lines, with truncation indicator. */
+export const logCharResult = (character: string, text: string) =>
+  Effect.sync(() => {
+    const lines = text.split("\n").filter((l) => l.trim().length > 0)
+    if (lines.length === 0) return
+
+    const MAX_HEAD = 10
+    const MAX_TAIL = 5
+    const c = colorFor(character)
+    const prefix = `${c}  >${RESET}`
+
+    if (lines.length <= MAX_HEAD + MAX_TAIL) {
+      for (const line of lines) {
+        console.log(`${prefix} ${line}`)
+      }
+    } else {
+      for (const line of lines.slice(0, MAX_HEAD)) {
+        console.log(`${prefix} ${line}`)
+      }
+      console.log(`${prefix} ${DIM}... (${lines.length - MAX_HEAD - MAX_TAIL} lines omitted)${RESET}`)
+      for (const line of lines.slice(-MAX_TAIL)) {
         console.log(`${prefix} ${line}`)
       }
     }
   })
 
-// ── Character narrative lines (used by log-demux) ────────
-
-/** Character thought — the LLM's voice IS the character. */
-export const logCharThought = (character: string, text: string) =>
+/** Simple tick notification. */
+export const logTickReceived = (character: string, tick: number) =>
   Effect.sync(() => {
-    const firstLine = text.split("\n").find((l) => l.trim().length > 0)?.trim() ?? ""
-    if (firstLine) {
-      console.log(`${ts()} ${character}: "${firstLine}"`)
-    }
-  })
-
-/** Character action — an sm command the character runs. */
-export const logCharAction = (_character: string, command: string) =>
-  Effect.sync(() => {
-    console.log(`${ts()}   $ ${command}`)
-  })
-
-/** Tool result — what the game returned. */
-export const logCharResult = (text: string) =>
-  Effect.sync(() => {
-    const firstLine = text.split("\n").find((l) => l.trim().length > 0)?.trim() ?? ""
-    if (firstLine) {
-      console.log(`${ts()}   > ${firstLine}`)
-    }
+    console.log(`${tag(character, "tick")} ${tick}`)
   })
 
 /** Format an unknown error into a readable string. */

@@ -8,6 +8,7 @@ import type {
   ClientMessage,
 } from "../../../harness/src/ws-types.js"
 import { parseGameEvent } from "../../../harness/src/ws-types.js"
+import { tag } from "../logging/console-renderer.js"
 
 const WS_URL = "wss://game.spacemolt.com/ws"
 const RECONNECT_DELAY_MS = 2000
@@ -23,8 +24,8 @@ export interface GameSocketConnection {
   readonly events: Queue.Queue<GameEvent>
   /** Initial game state from the logged_in event. */
   readonly initialState: GameState
-  /** Ticks per second, from the server welcome event. */
-  readonly tickRateHz: number
+  /** Seconds per tick, from the server welcome event tick_rate field. */
+  readonly tickIntervalSec: number
 }
 
 export class GameSocket extends Context.Tag("GameSocket")<
@@ -84,15 +85,15 @@ export const makeGameSocketLive = () =>
             // Track whether we've logged in at least once
             const hasLoggedIn = yield* Ref.make(false)
 
-            // Tick rate from welcome event (ticks per second)
-            const tickRateRef = yield* Ref.make(1) // default 1 Hz until welcome arrives
+            // Tick interval from welcome event (seconds per tick)
+            const tickIntervalRef = yield* Ref.make(1) // default 1s per tick until welcome arrives
 
             // Flag to stop reconnect loop on finalization
             const closed = yield* Ref.make(false)
 
             const connectAndLogin = Effect.gen(function* () {
               yield* Effect.sync(() =>
-                console.log(`[${characterName}:ws] Connecting to ${WS_URL}...`),
+                console.log(`${tag(characterName, "ws")} Connecting to ${WS_URL}...`),
               )
 
               const socket = yield* Effect.async<WebSocket, GameSocketError>((resume) => {
@@ -134,7 +135,7 @@ export const makeGameSocketLive = () =>
                     ),
                   )
                 } catch (err) {
-                  console.error(`[${characterName}:ws] Failed to parse message: ${err}`)
+                  console.error(`${tag(characterName, "ws")} Failed to parse message: ${err}`)
                 }
               })
 
@@ -152,7 +153,7 @@ export const makeGameSocketLive = () =>
                       clearTimeout(timeout)
                       socket.removeListener("message", handler)
                       const welcomePayload = (event as WelcomeEvent).payload
-                      Effect.runSync(Ref.set(tickRateRef, welcomePayload.tick_rate))
+                      Effect.runSync(Ref.set(tickIntervalRef, welcomePayload.tick_rate))
                       resume(Effect.succeed(undefined))
                     }
                   } catch {
@@ -163,9 +164,9 @@ export const makeGameSocketLive = () =>
                 socket.on("message", handler)
               })
 
-              const currentTickRate = yield* Ref.get(tickRateRef)
+              const currentTickInterval = yield* Ref.get(tickIntervalRef)
               yield* Effect.sync(() =>
-                console.log(`[${characterName}:ws] Received welcome (tick_rate=${currentTickRate}Hz), sending login...`),
+                console.log(`${tag(characterName, "ws")} Received welcome (tick_rate=${currentTickInterval}s), sending login...`),
               )
 
               // Send login
@@ -182,7 +183,7 @@ export const makeGameSocketLive = () =>
 
               // Set up reconnect handler
               socket.on("close", () => {
-                console.log(`[${characterName}:ws] Connection closed`)
+                console.log(`${tag(characterName, "ws")} Connection closed`)
                 ws = null
 
                 // Reconnect if not intentionally closed
@@ -193,7 +194,7 @@ export const makeGameSocketLive = () =>
 
                     yield* Effect.sync(() =>
                       console.log(
-                        `[${characterName}:ws] Reconnecting in ${RECONNECT_DELAY_MS}ms...`,
+                        `${tag(characterName, "ws")} Reconnecting in ${RECONNECT_DELAY_MS}ms...`,
                       ),
                     )
                     yield* Effect.sleep(RECONNECT_DELAY_MS)
@@ -205,7 +206,7 @@ export const makeGameSocketLive = () =>
                       Effect.catchAll((e) =>
                         Effect.sync(() =>
                           console.error(
-                            `[${characterName}:ws] Reconnect failed: ${e.message}`,
+                            `${tag(characterName, "ws")} Reconnect failed: ${e.message}`,
                           ),
                         ),
                       ),
@@ -215,7 +216,7 @@ export const makeGameSocketLive = () =>
               })
 
               socket.on("error", (err) => {
-                console.error(`[${characterName}:ws] Error: ${err.message}`)
+                console.error(`${tag(characterName, "ws")} Error: ${err.message}`)
               })
             })
 
@@ -232,7 +233,7 @@ export const makeGameSocketLive = () =>
 
             yield* Effect.sync(() =>
               console.log(
-                `[${characterName}:ws] Logged in as ${initialState.player.username} in ${initialState.system?.name ?? initialState.player.current_system}`,
+                `${tag(characterName, "ws")} Logged in as ${initialState.player.username} in ${initialState.system?.name ?? initialState.player.current_system}`,
               ),
             )
 
@@ -249,13 +250,13 @@ export const makeGameSocketLive = () =>
                 })
                 yield* Queue.shutdown(events)
                 yield* Effect.sync(() =>
-                  console.log(`[${characterName}:ws] Connection closed (finalized)`),
+                  console.log(`${tag(characterName, "ws")} Connection closed (finalized)`),
                 )
               }),
             )
 
-            const tickRateHz = yield* Ref.get(tickRateRef)
-            return { events, initialState, tickRateHz }
+            const tickIntervalSec = yield* Ref.get(tickIntervalRef)
+            return { events, initialState, tickIntervalSec }
           }),
 
         send: (msg) =>

@@ -18,7 +18,7 @@ export interface SubagentInput {
   situation: Situation
   personality: string  // character background snippet
   values: string       // character values snippet
-  tickRateHz: number   // ticks per second from server
+  tickIntervalSec: number   // seconds per tick from server
 }
 
 interface SubagentResult {
@@ -54,7 +54,7 @@ function buildSubagentPrompt(input: SubagentInput): string {
   }
 
   const taskInstruction = taskPrompts[step.task] ?? taskPrompts.explore
-  const tickIntervalSec = 1 / input.tickRateHz
+  const tickIntervalSec = input.tickIntervalSec
   const budgetSeconds = Math.round(step.timeoutTicks * tickIntervalSec)
 
   return `# Your Mission

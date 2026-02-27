@@ -174,7 +174,7 @@ function generateInSpaceBriefing(
 	lines.push(cargoLine(state.cargo, ship));
 
 	// Resources at mineable POIs
-	if (situation.flags.atMineablePoi && poi?.resources.length) {
+	if (situation.flags.atMineablePoi && poi?.resources?.length) {
 		const resources = poi.resources
 			.map((r) => `${r.resource_id.replace(/_/g, " ")} (richness: ${r.richness})`)
 			.join(", ");

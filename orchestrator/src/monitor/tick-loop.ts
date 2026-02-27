@@ -18,7 +18,7 @@ export interface TickLoopConfig {
   tickIntervalSeconds: number
   projectRoot: string
   containerEnv?: Record<string, string>
-  tickRateHz?: number  // from server; defaults to 1/tickIntervalSeconds
+  tickIntervalSecOverride?: number  // from server; defaults to tickIntervalSeconds
 }
 
 export const tickLoop = (config: TickLoopConfig) =>
@@ -35,8 +35,7 @@ export const tickLoop = (config: TickLoopConfig) =>
     const subagentReportRef = yield* Ref.make("")
     const previousFailureRef = yield* Ref.make<string | null>(null)
     const stepTimingHistoryRef = yield* Ref.make<StepTiming[]>([])
-    const tickRateHz = config.tickRateHz ?? (1 / config.tickIntervalSeconds)
-    const tickIntervalSec = 1 / tickRateHz
+    const tickIntervalSec = config.tickIntervalSecOverride ?? config.tickIntervalSeconds
 
     /** Record step timing and log it. */
     const recordStepTiming = (task: string, goal: string, ticksBudgeted: number) =>
@@ -299,7 +298,7 @@ export const tickLoop = (config: TickLoopConfig) =>
             situation,
             personality,
             values,
-            tickRateHz,
+            tickIntervalSec,
           }).pipe(
             Effect.tap((report) => Ref.set(subagentReportRef, report)),
             Effect.catchAll((e) =>

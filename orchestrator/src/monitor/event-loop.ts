@@ -10,7 +10,7 @@ import { isStepComplete, buildStateSnapshot } from "./plan-tracker.js"
 import type { Plan } from "../ai/types.js"
 import type { GameState, Situation, ChatMessage, Alert } from "../../../harness/src/types.js"
 import type { GameEvent, StateUpdateEvent, CombatUpdateEvent, ChatMessageEvent } from "../../../harness/src/ws-types.js"
-import { logToConsole, logStateBar, logPlanTransition, logStepResult, formatError } from "../logging/console-renderer.js"
+import { logToConsole, logStateBar, logPlanTransition, logStepResult, logTickReceived, formatError } from "../logging/console-renderer.js"
 import * as path from "node:path"
 
 export interface EventLoopConfig {
@@ -21,7 +21,7 @@ export interface EventLoopConfig {
   containerEnv?: Record<string, string>
   events: Queue.Queue<GameEvent>
   initialState: GameState
-  tickRateHz: number
+  tickIntervalSec: number
 }
 
 export const eventLoop = (config: EventLoopConfig) =>
@@ -40,7 +40,7 @@ export const eventLoop = (config: EventLoopConfig) =>
     const previousFailureRef = yield* Ref.make<string | null>(null)
     const stepTimingHistoryRef = yield* Ref.make<StepTiming[]>([])
     const lastProcessedTickRef = yield* Ref.make(0)
-    const tickIntervalSec = 1 / config.tickRateHz
+    const tickIntervalSec = config.tickIntervalSec
 
     // --- New refs for WS-driven state ---
     const gameStateRef = yield* Ref.make<GameState>(config.initialState)
@@ -92,11 +92,7 @@ export const eventLoop = (config: EventLoopConfig) =>
 
         yield* Ref.update(stepTimingHistoryRef, (history) => [...history.slice(-9), timing])
 
-        const budgetLabel = overrun
-          ? `OVERRUN by ${ticksConsumed - ticksBudgeted}`
-          : "within budget"
-        yield* logToConsole(config.char.name, "monitor",
-          `Step took ${ticksConsumed}/${ticksBudgeted} ticks (${budgetLabel})`)
+        // Step timing suppressed from stdout (available in log files)
 
         return timing
       })
@@ -146,7 +142,6 @@ export const eventLoop = (config: EventLoopConfig) =>
     /** Check if a completed subagent's step succeeded. Advance or replan. */
     const evaluateCompletedSubagent = (state: GameState) =>
       Effect.gen(function* () {
-        yield* logToConsole(config.char.name, "monitor", "Subagent completed, evaluating...")
 
         const plan = yield* Ref.get(planRef)
         const step = yield* Ref.get(stepRef)
@@ -200,7 +195,6 @@ export const eventLoop = (config: EventLoopConfig) =>
             yield* Ref.set(stepRef, step + 1)
           } else {
             const failureContext = `Step ${step + 1} [${currentStep.task}] "${currentStep.goal}" failed: ${result.reason}\nSubagent report: ${report.slice(-300) || "(no report)"}`
-            yield* logToConsole(config.char.name, "monitor", `Step ${step + 1} failed, requesting new plan...`)
             yield* Ref.set(previousFailureRef, failureContext)
             yield* Ref.set(planRef, null)
             yield* Ref.set(stepRef, 0)
@@ -227,14 +221,11 @@ export const eventLoop = (config: EventLoopConfig) =>
 
           const midRunResult = isStepComplete(currentStep, state, situation)
           if (midRunResult.complete) {
-            yield* logToConsole(config.char.name, "monitor",
-              `Step ${step + 1} condition met mid-run: ${midRunResult.reason}`)
             yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
             yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
             yield* Ref.set(subagentFiberRef, null)
             yield* Ref.set(stepRef, step + 1)
           } else if (tickCount - startTick >= currentStep.timeoutTicks) {
-            yield* logToConsole(config.char.name, "monitor", `Step ${step + 1} timed out — interrupting`)
             yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
             yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
             yield* Ref.set(subagentFiberRef, null)
@@ -251,7 +242,6 @@ export const eventLoop = (config: EventLoopConfig) =>
         const noFiber = (yield* Ref.get(subagentFiberRef)) === null
 
         if (noFiber && (!plan || step >= (plan?.steps.length ?? 0))) {
-          yield* logToConsole(config.char.name, "monitor", "Requesting new plan from brain...")
 
           const diary = yield* charFs.readDiary(config.char)
           const background = yield* charFs.readBackground(config.char)
@@ -312,12 +302,6 @@ export const eventLoop = (config: EventLoopConfig) =>
 
           yield* logPlanTransition(config.char.name, currentPlan, currentStep)
 
-          yield* logToConsole(
-            config.char.name,
-            "monitor",
-            `Spawning subagent: [${planStep.task}] ${planStep.goal} (${planStep.model})`,
-          )
-
           const personality = yield* charFs.readBackground(config.char)
           const values = yield* charFs.readValues(config.char)
           const fs = yield* FileSystem.FileSystem
@@ -336,7 +320,7 @@ export const eventLoop = (config: EventLoopConfig) =>
             situation,
             personality,
             values,
-            tickRateHz: config.tickRateHz,
+            tickIntervalSec: config.tickIntervalSec,
           }).pipe(
             Effect.tap((report) => Ref.set(subagentReportRef, report)),
             Effect.catchAll((e) =>
@@ -391,12 +375,8 @@ export const eventLoop = (config: EventLoopConfig) =>
     /** Process a tick event: heartbeat, timeout checks, and proactive plan/spawn. */
     const handleTick = (tick: number) =>
       Effect.gen(function* () {
-        // Detect tick skips (processing took longer than tick interval)
-        const lastTick = yield* Ref.get(lastProcessedTickRef)
-        if (lastTick > 0 && tick - lastTick > 1) {
-          yield* logToConsole(config.char.name, "monitor",
-            `Skipped ${tick - lastTick - 1} ticks (processing took longer than tick interval)`)
-        }
+        yield* logTickReceived(config.char.name, tick)
+
         yield* Ref.set(lastProcessedTickRef, tick)
         yield* Ref.set(tickCountRef, tick)
 
@@ -492,7 +472,6 @@ export const eventLoop = (config: EventLoopConfig) =>
       const state = yield* Ref.get(gameStateRef)
       const situation = api.classify(state)
       const briefing = api.briefing(state, situation)
-      yield* logStateBar(config.char.name, state, situation)
       yield* maybeRequestPlan(state, situation, briefing)
       yield* maybeSpawnSubagent(state, situation)
     }).pipe(
@@ -533,38 +512,17 @@ export const eventLoop = (config: EventLoopConfig) =>
               break
 
             case "mining_yield":
-              yield* logToConsole(config.char.name, "ws:mining",
-                `Yield: ${event.payload.quantity}x ${event.payload.resource_id} (${event.payload.remaining} remaining)`)
-              break
-
             case "poi_arrival":
-              yield* logToConsole(config.char.name, "ws:arrival",
-                `${event.payload.username} arrived at ${event.payload.poi_name}`)
-              break
-
             case "poi_departure":
-              yield* logToConsole(config.char.name, "ws:departure",
-                `${event.payload.username} departed ${event.payload.poi_name}`)
-              break
-
             case "skill_level_up":
-              yield* logToConsole(config.char.name, "ws:skill",
-                `Level up! ${event.payload.skill_id} → level ${event.payload.new_level}`)
-              break
-
             case "trade_offer_received":
-              yield* logToConsole(config.char.name, "ws:trade",
-                `Trade offer from ${event.payload.from_name} (trade_id: ${event.payload.trade_id})`)
+            case "ok":
+              // Suppressed from stdout (still available via WS event logs)
               break
 
             case "error":
               yield* logToConsole(config.char.name, "ws:error",
                 `[${event.payload.code}] ${event.payload.message}`)
-              break
-
-            case "ok":
-              // Action acknowledgements — log at debug level
-              yield* logToConsole(config.char.name, "ws:ok", JSON.stringify(event.payload))
               break
 
             case "welcome":
@@ -573,8 +531,7 @@ export const eventLoop = (config: EventLoopConfig) =>
               break
 
             default:
-              yield* logToConsole(config.char.name, `ws:${(event as { type: string }).type}`,
-                JSON.stringify((event as { payload?: unknown }).payload ?? {}))
+              // Unknown event types suppressed from stdout
               break
           }
         }).pipe(
