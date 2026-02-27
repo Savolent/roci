@@ -22,6 +22,8 @@ export interface EventLoopConfig {
   events: Queue.Queue<GameEvent>
   initialState: GameState
   tickIntervalSec: number
+  /** Current game tick at connection time, for initializing tick tracking. */
+  initialTick: number
 }
 
 export const eventLoop = (config: EventLoopConfig) =>
@@ -34,8 +36,8 @@ export const eventLoop = (config: EventLoopConfig) =>
     const planRef = yield* Ref.make<Plan | null>(null)
     const stepRef = yield* Ref.make(0)
     const subagentFiberRef = yield* Ref.make<Fiber.RuntimeFiber<string, unknown> | null>(null)
-    const tickCountRef = yield* Ref.make(0)
-    const stepStartTickRef = yield* Ref.make(0)
+    const tickCountRef = yield* Ref.make(config.initialTick)
+    const stepStartTickRef = yield* Ref.make(config.initialTick)
     const subagentReportRef = yield* Ref.make("")
     const previousFailureRef = yield* Ref.make<string | null>(null)
     const stepTimingHistoryRef = yield* Ref.make<StepTiming[]>([])
@@ -150,16 +152,14 @@ export const eventLoop = (config: EventLoopConfig) =>
           const currentStep = plan.steps[step]
           const timing = yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
 
-          // Use fresh REST state for evaluation (more complete than WS state)
-          const freshState = yield* api.collectState().pipe(
-            Effect.catchAll(() => Effect.succeed(state)),
-          )
+          // Use WS state for evaluation — the REST GameApi is a shared singleton
+          // without per-character auth, so collectState() returns empty/default data.
           const report = yield* Ref.get(subagentReportRef)
 
           const result = yield* brainEvaluate.execute({
             step: currentStep,
             subagentReport: report,
-            state: freshState,
+            state,
             ticksConsumed: timing.ticksConsumed,
             ticksBudgeted: timing.ticksBudgeted,
             tickIntervalSec,
@@ -169,7 +169,7 @@ export const eventLoop = (config: EventLoopConfig) =>
                 complete: true as const,
                 reason: `Brain evaluation failed (${e}), trusting subagent completion`,
                 matchedCondition: null,
-                relevantState: buildStateSnapshot(freshState),
+                relevantState: buildStateSnapshot(state),
               }),
             ),
           )
@@ -346,6 +346,10 @@ export const eventLoop = (config: EventLoopConfig) =>
     const handleStateUpdate = (payload: StateUpdateEvent["payload"]) =>
       Effect.gen(function* () {
         yield* applyStateUpdate(payload)
+        // Keep tickCountRef in sync — state_update.tick is authoritative (from /health or server)
+        if (payload.tick > 0) {
+          yield* Ref.set(tickCountRef, payload.tick)
+        }
         const state = yield* Ref.get(gameStateRef)
         const situation = api.classify(state)
         const briefing = api.briefing(state, situation)

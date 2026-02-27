@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Queue, Scope, Schedule, Fiber, Ref, Deferred } from "effect"
 import WebSocket from "ws"
-import type { Credentials, GameState, NearbyPlayer } from "../../../harness/src/types.js"
+import type { Credentials, GameState, NearbyPlayer, PlayerState, ShipState } from "../../../harness/src/types.js"
 import type {
   GameEvent,
   LoggedInEvent,
@@ -11,9 +11,21 @@ import { parseGameEvent } from "../../../harness/src/ws-types.js"
 import { tag } from "../logging/console-renderer.js"
 
 const WS_URL = "wss://game.spacemolt.com/ws"
+const HEALTH_URL = "https://game.spacemolt.com/health"
 const RECONNECT_DELAY_MS = 2000
 const QUEUE_CAPACITY = 500
 const POLL_INTERVAL_MS = 10_000
+
+/** Fetch the current game tick from the health endpoint. Returns null on failure. */
+async function fetchHealthTick(): Promise<number | null> {
+  try {
+    const resp = await fetch(HEALTH_URL)
+    const data = (await resp.json()) as { tick?: number }
+    return data.tick ?? null
+  } catch {
+    return null
+  }
+}
 
 export class GameSocketError {
   readonly _tag = "GameSocketError"
@@ -27,6 +39,8 @@ export interface GameSocketConnection {
   readonly initialState: GameState
   /** Seconds per tick, from the server welcome event tick_rate field. */
   readonly tickIntervalSec: number
+  /** Current game tick at connection time, from the server welcome event. */
+  readonly initialTick: number
 }
 
 export class GameSocket extends Context.Tag("GameSocket")<
@@ -94,7 +108,7 @@ export const makeGameSocketLive = () =>
 
             // Poll state — shared between message handler and poll fiber
             let pollPending = false
-            let pollTick = 0
+            let serverTick = 0 // Synced from /health endpoint
 
             const connectAndLogin = Effect.gen(function* () {
               yield* Effect.sync(() =>
@@ -140,13 +154,12 @@ export const makeGameSocketLive = () =>
                     const payload = (event as { type: "ok"; payload: Record<string, unknown> }).payload
                     if (payload.player && payload.ship) {
                       pollPending = false
-                      pollTick++
                       const synthetic = {
                         type: "state_update" as const,
                         payload: {
-                          tick: pollTick,
-                          player: payload.player,
-                          ship: payload.ship,
+                          tick: serverTick,
+                          player: payload.player as PlayerState,
+                          ship: payload.ship as ShipState,
                           nearby: (payload.nearby ?? []) as NearbyPlayer[],
                           in_combat: (payload.in_combat as boolean) ?? false,
                           ...(payload.travel_progress != null ? {
@@ -193,6 +206,7 @@ export const makeGameSocketLive = () =>
                       socket.removeListener("message", handler)
                       const welcomePayload = (event as WelcomeEvent).payload
                       Effect.runSync(Ref.set(tickIntervalRef, welcomePayload.tick_rate))
+                      serverTick = welcomePayload.current_tick
                       resume(Effect.succeed(undefined))
                     }
                   } catch {
@@ -278,11 +292,20 @@ export const makeGameSocketLive = () =>
 
             // Start polling fiber — sends get_status periodically to synthesize state_update events
             // The server doesn't push state_update to idle players, so we poll instead.
-            const pollFiber = yield* Effect.sync(() => {
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                pollPending = true
-                ws.send(JSON.stringify({ type: "get_status" }))
-              }
+            // Fetches /health each cycle to sync the real game tick for synthetic events.
+            const pollFiber = yield* Effect.gen(function* () {
+              const tick = yield* Effect.tryPromise({
+                try: () => fetchHealthTick(),
+                catch: () => null,
+              })
+              if (tick != null) serverTick = tick
+
+              yield* Effect.sync(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  pollPending = true
+                  ws.send(JSON.stringify({ type: "get_status" }))
+                }
+              })
             }).pipe(
               Effect.repeat(Schedule.spaced(`${POLL_INTERVAL_MS} millis`)),
               Effect.catchAll(() => Effect.void),
@@ -309,7 +332,7 @@ export const makeGameSocketLive = () =>
             )
 
             const tickIntervalSec = yield* Ref.get(tickIntervalRef)
-            return { events, initialState, tickIntervalSec }
+            return { events, initialState, tickIntervalSec, initialTick: serverTick }
           }),
 
         send: (msg) =>
