@@ -100,6 +100,14 @@ export const eventLoop = (config: EventLoopConfig) =>
         return timing
       })
 
+    /** Enrich the most recent timing entry with evaluation outcome. */
+    const recordStepOutcome = (succeeded: boolean, reason: string, stateDiff: string) =>
+      Ref.update(stepTimingHistoryRef, (history) => {
+        if (history.length === 0) return history
+        const last = { ...history[history.length - 1], succeeded, reason, stateDiff }
+        return [...history.slice(0, -1), last]
+      })
+
     /** Handle critical interrupts: kill subagent, ask brain for new plan. */
     const handleInterrupt = (criticals: Alert[], state: GameState, situation: Situation, briefing: string) =>
       Effect.gen(function* () {
@@ -168,6 +176,7 @@ export const eventLoop = (config: EventLoopConfig) =>
 
           // Short-circuit: if deterministic check passes with a recognized condition, skip LLM
           if (conditionCheck.complete && conditionCheck.matchedCondition) {
+            yield* recordStepOutcome(true, conditionCheck.reason, stateDiff)
             yield* logStepResult(config.char.name, step, conditionCheck)
             yield* log.action(config.char, {
               timestamp: new Date().toISOString(),
@@ -213,6 +222,7 @@ export const eventLoop = (config: EventLoopConfig) =>
             ),
           )
 
+          yield* recordStepOutcome(result.complete, result.reason, stateDiff)
           yield* logStepResult(config.char.name, step, result)
 
           yield* log.action(config.char, {

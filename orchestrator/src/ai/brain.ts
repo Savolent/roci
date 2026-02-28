@@ -11,6 +11,10 @@ export interface StepTiming {
   ticksBudgeted: number
   ticksConsumed: number
   overrun: boolean
+  // Outcome fields — filled after evaluation
+  succeeded?: boolean
+  reason?: string
+  stateDiff?: string
 }
 
 export interface BrainPlanInput {
@@ -116,7 +120,17 @@ export const brainPlan: AiFunction<BrainPlanInput, Plan, Claude, ClaudeError> = 
         : ""
 
       const timingSection = input.stepTimingHistory && input.stepTimingHistory.length > 0
-        ? `\n## Recent Step Performance\n${input.stepTimingHistory.map((h) => `[${h.task}] "${h.goal}" — ${h.ticksConsumed}/${h.ticksBudgeted} ticks${h.overrun ? " OVERRUN" : ""}`).join("\n")}\n\nUse this data to set realistic timeoutTicks for upcoming steps.\n`
+        ? `\n## Recent Step Outcomes\n${input.stepTimingHistory.map((h) => {
+          let line = `[${h.task}] "${h.goal}" — ${h.ticksConsumed}/${h.ticksBudgeted} ticks${h.overrun ? " OVERRUN" : ""}`
+          if (h.succeeded !== undefined) {
+            line += ` → ${h.succeeded ? "SUCCESS" : "FAILED"}`
+            if (h.reason) line += `: ${h.reason}`
+          }
+          if (h.stateDiff && h.stateDiff !== "(no changes detected)" && h.stateDiff !== "(no before-state captured)") {
+            line += `\n  State changes: ${h.stateDiff.split("\n").join(", ")}`
+          }
+          return line
+        }).join("\n")}\n\nUse this data to set realistic timeoutTicks and learn from recent outcomes.\n`
         : ""
 
       const prompt = `# Current Game State
