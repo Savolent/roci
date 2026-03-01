@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { SituationType, type GameState, type Situation } from "../../../harness/src/types.js"
-import type { Plan } from "../ai/types.js"
-import type { StepCompletionResult } from "../monitor/plan-tracker.js"
+import type { Plan } from "../core/types.js"
+import type { StepCompletionResult } from "../core/types.js"
 
 // ── Per-player ANSI colors ───────────────────────────────
 

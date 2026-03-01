@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 
 /**
- * A composable AI function: gather context → build prompt → invoke LLM → parse output.
+ * A composable AI function: gather context -> build prompt -> invoke LLM -> parse output.
  *
  * This is a lightweight abstraction — just a named Effect-returning function.
  */
