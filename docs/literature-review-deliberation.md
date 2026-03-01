@@ -229,19 +229,7 @@ What worked / what didn't / what to try next. Time-boxed, structured, blame-free
 
 ## Part 3: Reality TV Deliberation Models
 
-### 3.1 The Apprentice — Rotating Commander with Accountability
-
-**Relevance: HIGH** — Commander selection and after-action review
-
-The PM has real authority during execution but is the primary accountability target if the team fails. Team members can register dissent that becomes evidence in the boardroom. The "bring back two" mechanic forces explicit blame allocation.
-
-**Transferable Pattern**: Domain-based rotating commander (trade mission → Avasarala, combat → Bobbie, engineering → Naomi, exploration → Holden). Commander sets strategy and assigns subtasks. Others can register dissent in a shared log. After-action review evaluates the commander's decisions — pre-registered dissent carries weight. Reputation tracking across sessions.
-
-**Why Not More**: The elimination mechanic doesn't apply (we can't fire crew members). But the accountability loop — authority comes with scrutiny — is the valuable pattern.
-
----
-
-### 3.2 Survivor — Secret Ballot with Jury Memory
+### 3.1 Survivor — Secret Ballot with Jury Memory
 
 **Relevance: MEDIUM** — The simultaneous reveal and prediction tracking
 
@@ -253,7 +241,7 @@ The gap between public statements and private votes creates interesting dynamics
 
 ---
 
-### 3.3 Big Brother — Ceremony Sequence with Veto
+### 3.2 Big Brother — Ceremony Sequence with Veto
 
 **Relevance: MEDIUM** — The agenda-setter + veto structure
 
@@ -265,7 +253,7 @@ HoH sets the agenda (nominations), PoV can disrupt it. Power is explicitly tempo
 
 ---
 
-### 3.4 The Circle — Mediated Text Communication & Information Asymmetry
+### 3.3 The Circle — Mediated Text Communication & Information Asymmetry
 
 **Relevance: MEDIUM** — Channel architecture
 
@@ -277,7 +265,7 @@ All communication is text-based through an app. Group chat, private DMs, public 
 
 ---
 
-### 3.5 The Mole — Trust Verification Protocols
+### 3.4 The Mole — Trust Verification Protocols
 
 **Relevance: LOW** — For external faction evaluation only
 
@@ -289,7 +277,7 @@ A hidden saboteur creates paranoia and observation-based gameplay. Players balan
 
 ---
 
-### 3.6 Amazing Race — Speed Over Consensus + Roadblocks
+### 3.5 Amazing Race — Speed Over Consensus + Roadblocks
 
 **Relevance: LOW** — The forcing function insight
 
@@ -301,7 +289,7 @@ Time pressure resolves all disagreements. Detour choices (pick one of two tasks)
 
 ---
 
-### 3.7 Taskmaster — Creative Constraints
+### 3.6 Taskmaster — Creative Constraints
 
 **Relevance: IGNORE**
 
@@ -324,7 +312,7 @@ Individual creativity within constraints, judged by an authority. Interesting fo
 | **Contested** | Crew Debate (simultaneous) | Du et al. + Chan et al. | Critical decisions | 11 calls |
 | **Values** | Consent-with-Block | Consensus tradition | Morally ambiguous acts | 5-10 calls |
 | **Reflection** | Retro | Agile | Session end (dinner) | Maps to existing |
-| **Accountability** | After-Action Review | The Apprentice | Post-mission | Maps to existing |
+| **Accountability** | After-Action Review | Military AAR doctrine | Post-mission | Maps to existing |
 
 ### Key Design Principles
 
