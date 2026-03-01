@@ -43,6 +43,7 @@ export interface GenericBrainPlanInput<S, Sit> {
   recentChat?: Array<{ channel: string; sender: string; content: string }>
   stepTimingHistory?: StepTiming[]
   tickIntervalSec: number
+  additionalContext?: string
 }
 
 export interface GenericBrainInterruptInput<S, Sit> {

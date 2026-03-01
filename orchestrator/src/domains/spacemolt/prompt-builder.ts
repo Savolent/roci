@@ -67,6 +67,10 @@ function buildPlanUserPrompt(ctx: PlanPromptContext<GameState, Situation>): stri
       }).join("\n")}\n\nUse this data to set realistic timeoutTicks and learn from recent outcomes.\n`
     : ""
 
+  const additionalSection = ctx.additionalContext
+    ? `\n## Additional Context\n${ctx.additionalContext}\n`
+    : ""
+
   return `# Current Game State
 
 ## Briefing
@@ -74,7 +78,7 @@ ${ctx.briefing}
 
 ## Alerts
 ${ctx.situation.alerts.map((a: { priority: string; message: string }) => `[${a.priority}] ${a.message}`).join("\n") || "None"}
-${failureSection}${chatSection}${timingSection}
+${failureSection}${chatSection}${timingSection}${additionalSection}
 ## Character Background
 ${ctx.background}
 

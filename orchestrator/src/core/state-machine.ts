@@ -23,7 +23,7 @@ import { SituationClassifierTag } from "./situation.js"
 import type { StateRenderer } from "./state-renderer.js"
 import { StateRendererTag } from "./state-renderer.js"
 import type { Plan, StepTiming, Alert, ExitReason, StateMachineResult } from "./types.js"
-import type { LifecycleHooks } from "./lifecycle.js"
+import type { LifecycleHooks, PlanContext } from "./lifecycle.js"
 import {
   genericBrainPlan,
   genericBrainInterrupt,
@@ -203,9 +203,9 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
               subagentReport: report.slice(-500),
             })
 
-            if (hooks?.afterStep) {
-              yield* hooks.afterStep(step, conditionCheck)
-            }
+            const finalConditionCheck = hooks?.afterStep
+              ? yield* hooks.afterStep(step, conditionCheck)
+              : conditionCheck
 
             yield* Ref.set(stepRef, step + 1)
             yield* Ref.set(subagentFiberRef, null)
@@ -253,14 +253,14 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             subagentReport: report.slice(-500),
           })
 
-          if (hooks?.afterStep) {
-            yield* hooks.afterStep(step, result)
-          }
+          const finalResult = hooks?.afterStep
+            ? yield* hooks.afterStep(step, result)
+            : result
 
-          if (result.complete) {
+          if (finalResult.complete) {
             yield* Ref.set(stepRef, step + 1)
           } else {
-            const failureContext = `Step ${step + 1} [${currentStep.task}] "${currentStep.goal}" failed: ${result.reason}\nSubagent report: ${report.slice(-300) || "(no report)"}`
+            const failureContext = `Step ${step + 1} [${currentStep.task}] "${currentStep.goal}" failed: ${finalResult.reason}\nSubagent report: ${report.slice(-300) || "(no report)"}`
             yield* Ref.set(previousFailureRef, failureContext)
             yield* Ref.set(planRef, null)
             yield* Ref.set(stepRef, 0)
@@ -309,16 +309,25 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         const noFiber = (yield* Ref.get(subagentFiberRef)) === null
 
         if (noFiber && (!plan || step >= (plan?.steps.length ?? 0))) {
-          if (hooks?.beforePlan) {
-            yield* hooks.beforePlan()
-          }
-
           const diary = yield* charFs.readDiary(config.char)
           const background = yield* charFs.readBackground(config.char)
           const values = yield* charFs.readValues(config.char)
           const previousFailure = yield* Ref.get(previousFailureRef)
           const recentChat = yield* Ref.get(chatContextRef)
           const stepTimingHistory = yield* Ref.get(stepTimingHistoryRef)
+
+          let additionalContext: string | undefined
+          if (hooks?.beforePlan) {
+            const planContext: PlanContext = {
+              briefing,
+              state,
+              situation,
+              diary,
+              previousFailure: previousFailure ?? undefined,
+            }
+            const enrichment = yield* hooks.beforePlan(planContext)
+            additionalContext = enrichment.additionalContext
+          }
 
           const newPlan = yield* brainPlan.execute({
             state,
@@ -331,6 +340,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             recentChat: recentChat.length > 0 ? recentChat : undefined,
             stepTimingHistory: stepTimingHistory.length > 0 ? stepTimingHistory : undefined,
             tickIntervalSec,
+            additionalContext,
           })
 
           yield* Ref.set(previousFailureRef, null)
@@ -351,12 +361,12 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             `New plan (${newPlan.steps.length} steps): ${newPlan.reasoning}`,
           )
 
-          if (hooks?.afterPlan) {
-            yield* hooks.afterPlan(newPlan)
-          }
+          const finalPlan = hooks?.afterPlan
+            ? yield* hooks.afterPlan(newPlan)
+            : newPlan
 
           const tickCount = yield* Ref.get(tickCountRef)
-          yield* Ref.set(planRef, newPlan)
+          yield* Ref.set(planRef, finalPlan)
           yield* Ref.set(stepRef, 0)
           yield* Ref.set(stepStartTickRef, tickCount)
         }
@@ -373,9 +383,9 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         if (currentPlan && currentStep < currentPlan.steps.length) {
           const planStep = currentPlan.steps[currentStep]
 
-          if (hooks?.beforeStep) {
-            yield* hooks.beforeStep(currentStep, planStep.task)
-          }
+          const finalStep = hooks?.beforeStep
+            ? yield* hooks.beforeStep(currentStep, planStep)
+            : planStep
 
           yield* logPlanTransition(config.char.name, currentPlan, currentStep)
 
@@ -392,7 +402,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             playerName: config.playerName,
             systemPrompt,
             containerEnv: config.containerEnv,
-            step: planStep,
+            step: finalStep,
             state,
             situation,
             personality,
@@ -587,7 +597,8 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
 
         // Check shouldExit hook
         if (hooks?.shouldExit) {
-          const wantsExit = yield* hooks.shouldExit()
+          const turnCount = yield* Ref.get(turnCountRef)
+          const wantsExit = yield* hooks.shouldExit(turnCount)
           if (wantsExit) {
             yield* Deferred.succeed(exitSignal, { _tag: "HookRequested", reason: "shouldExit returned true" })
           }

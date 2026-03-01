@@ -4,6 +4,7 @@ import type { GameState } from "../../../../harness/src/types.js"
 import type { GameEvent } from "../../../../harness/src/ws-types.js"
 import type { Phase, PhaseContext, PhaseResult, PhaseRegistry, ConnectionState } from "../../core/phase.js"
 import type { ExitReason } from "../../core/types.js"
+import type { LifecycleHooks } from "../../core/lifecycle.js"
 import { CharacterFs } from "../../services/CharacterFs.js"
 import { GameSocket } from "../../services/GameSocket.js"
 import { Claude } from "../../services/Claude.js"
@@ -66,8 +67,11 @@ const startupPhase = definePhase("startup", (context) =>
 
 /**
  * Active gameplay phase: runs the event loop / state machine.
- * Currently runs forever (no shouldExit hook configured).
+ * Exits after MIN_ACTIVE_TURNS turns (~50 minutes at 30s/tick),
+ * then transitions to social phase.
  */
+const MIN_ACTIVE_TURNS = 100
+
 const activePhase = definePhase("active", (context) =>
   Effect.gen(function* () {
     const log = yield* CharacterLog
@@ -89,8 +93,11 @@ const activePhase = definePhase("active", (context) =>
       containerId: context.containerId,
     })
 
-    // Create exit signal for the state machine (not wired to anything yet)
     const exitSignal = yield* Deferred.make<ExitReason, never>()
+
+    const hooks: LifecycleHooks = {
+      shouldExit: (turnCount: number) => Effect.succeed(turnCount >= MIN_ACTIVE_TURNS),
+    }
 
     yield* eventLoop({
       char: context.char,
@@ -103,6 +110,7 @@ const activePhase = definePhase("active", (context) =>
       tickIntervalSec,
       initialTick,
       exitSignal,
+      hooks,
     })
 
     // When the state machine exits, transition to social phase

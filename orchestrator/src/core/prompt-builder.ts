@@ -12,6 +12,7 @@ export interface PlanPromptContext<S, Sit> {
   recentChat?: Array<{ channel: string; sender: string; content: string }>
   stepTimingHistory?: StepTiming[]
   tickIntervalSec: number
+  additionalContext?: string
 }
 
 export interface InterruptPromptContext<S, Sit> {
