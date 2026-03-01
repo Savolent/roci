@@ -46,6 +46,38 @@ export const mineSkill: Skill<GameState, Situation> = {
       }
     }
 
+    // Match numeric cargo thresholds: "45/50", "cargo >= 45", "at or above 45", "at least 45"
+    if (cond.includes("cargo")) {
+      // Try "N/M" format first (e.g. "45/50")
+      const slashMatch = cond.match(/(\d+)\s*\/\s*(\d+)/)
+      if (slashMatch) {
+        const target = parseInt(slashMatch[1], 10)
+        const met = state.ship.cargo_used >= target
+        return {
+          complete: met,
+          reason: met
+            ? `Cargo ${state.ship.cargo_used}/${state.ship.cargo_capacity} (>= ${target})`
+            : `Cargo ${state.ship.cargo_used}/${state.ship.cargo_capacity}, need >= ${target}`,
+          matchedCondition: `cargo >= ${target}`,
+          relevantState: stateSnapshot,
+        }
+      }
+      // Try "at least N", "at or above N", ">= N", "> N"
+      const thresholdMatch = cond.match(/(?:at\s+(?:or\s+above|least)|>=?)\s*(\d+)/)
+      if (thresholdMatch) {
+        const target = parseInt(thresholdMatch[1], 10)
+        const met = state.ship.cargo_used >= target
+        return {
+          complete: met,
+          reason: met
+            ? `Cargo ${state.ship.cargo_used}/${state.ship.cargo_capacity} (>= ${target})`
+            : `Cargo ${state.ship.cargo_used}/${state.ship.cargo_capacity}, need >= ${target}`,
+          matchedCondition: `cargo >= ${target}`,
+          relevantState: stateSnapshot,
+        }
+      }
+    }
+
     return { complete: false, reason: `Condition "${step.successCondition}" not matched by mine skill`, matchedCondition: null, relevantState: stateSnapshot }
   },
 }

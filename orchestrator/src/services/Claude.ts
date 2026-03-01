@@ -101,6 +101,11 @@ export const ClaudeLive = Layer.effect(
               "--dangerously-skip-permissions",
             ]
 
+            // Disable thinking for non-opus models
+            if (opts.model !== "opus") {
+              args.push("--effort", "low")
+            }
+
             if (opts.maxTurns) {
               args.push("--max-turns", String(opts.maxTurns))
             }
@@ -168,6 +173,8 @@ export const ClaudeLive = Layer.effect(
             "--model", opts.model,
             "--output-format", outputFormat,
             ...(outputFormat === "stream-json" ? ["--verbose"] : []),
+            // Disable thinking for non-opus models
+            ...(opts.model !== "opus" ? ["--effort", "low"] : []),
           ]
 
           if (opts.systemPrompt) {
