@@ -125,6 +125,7 @@ const spaceMoltInterruptRegistry: InterruptRegistry<GameState, Situation> = {
           priority: rule.priority,
           message: rule.message(state, situation),
           suggestedAction: rule.suggestedAction,
+          ruleName: rule.name,
         })
       }
     }
@@ -133,6 +134,10 @@ const spaceMoltInterruptRegistry: InterruptRegistry<GameState, Situation> = {
 
   criticals(state: GameState, situation: Situation, currentTask?: string): Alert[] {
     return this.evaluate(state, situation, currentTask).filter((a) => a.priority === "critical")
+  },
+
+  softAlerts(state: GameState, situation: Situation, currentTask?: string): Alert[] {
+    return this.evaluate(state, situation, currentTask).filter((a) => a.priority !== "critical")
   },
 }
 

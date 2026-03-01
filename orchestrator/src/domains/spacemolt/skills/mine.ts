@@ -9,8 +9,19 @@ export const mineSkill: Skill<GameState, Situation> = {
   defaultModel: "haiku",
   defaultTimeoutTicks: 15,
   checkCompletion(step, state, _situation) {
-    const cond = step.successCondition.toLowerCase()
     const stateSnapshot = snapshot(state)
+
+    // Always complete if cargo is full — can't mine more regardless of condition
+    if (state.ship.cargo_used >= state.ship.cargo_capacity) {
+      return {
+        complete: true,
+        reason: `Cargo full (${state.ship.cargo_used}/${state.ship.cargo_capacity})`,
+        matchedCondition: "cargo full (implicit)",
+        relevantState: stateSnapshot,
+      }
+    }
+
+    const cond = step.successCondition.toLowerCase()
 
     if (cond.includes("cargo") && cond.includes("90%")) {
       const met = state.ship.cargo_used / state.ship.cargo_capacity > 0.9

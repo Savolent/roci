@@ -38,6 +38,7 @@ export interface Alert {
   priority: "critical" | "high" | "medium" | "low"
   message: string
   suggestedAction?: string
+  ruleName?: string  // stable identifier from the interrupt rule
 }
 
 // --- Phase state machine types ---

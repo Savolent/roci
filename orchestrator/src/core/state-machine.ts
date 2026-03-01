@@ -83,6 +83,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     const lastProcessedTickRef = yield* Ref.make(0)
     const spawnStateRef = yield* Ref.make<Record<string, unknown> | null>(null)
     const turnCountRef = yield* Ref.make(0)
+    const softAlertAccRef = yield* Ref.make<Map<string, Alert>>(new Map())
     const tickIntervalSec = config.tickIntervalSec
 
     // --- Domain state ---
@@ -161,6 +162,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         yield* Ref.set(planRef, newPlan)
         yield* Ref.set(stepRef, 0)
         yield* Ref.set(stepStartTickRef, tickCount)
+        yield* Ref.set(softAlertAccRef, new Map())
       })
 
     /** Check if a completed subagent's step succeeded. Advance or replan. */
@@ -329,6 +331,18 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             additionalContext = enrichment.additionalContext
           }
 
+          // Drain accumulated soft alerts into additionalContext
+          const accAlerts = yield* Ref.getAndSet(softAlertAccRef, new Map())
+          if (accAlerts.size > 0) {
+            const alertLines = Array.from(accAlerts.values())
+              .map(a => `[${a.priority}] ${a.message}${a.suggestedAction ? ` (suggested: ${a.suggestedAction})` : ""}`)
+              .join("\n")
+            const softAlertSection = `Alerts observed since last plan:\n${alertLines}`
+            additionalContext = additionalContext
+              ? `${additionalContext}\n\n${softAlertSection}`
+              : softAlertSection
+          }
+
           const newPlan = yield* brainPlan.execute({
             state,
             situation,
@@ -438,10 +452,30 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
 
         renderer.logStateBar(config.char.name, state, situation)
 
-        // Check for interrupts
-        const criticals = interrupts.criticals(state, situation)
+        // Get current task for suppression
+        const plan = yield* Ref.get(planRef)
+        const step = yield* Ref.get(stepRef)
+        const currentTask = plan && step < plan.steps.length ? plan.steps[step].task : undefined
+
+        // Evaluate all rules once, partition
+        const allAlerts = interrupts.evaluate(state, situation, currentTask)
+        const criticals = allAlerts.filter(a => a.priority === "critical")
+        const softAlerts = allAlerts.filter(a => a.priority !== "critical")
+
+        // Critical → hard interrupt (existing behavior)
         if (criticals.length > 0) {
           yield* handleInterrupt(criticals, state, situation, briefing)
+        }
+
+        // Non-critical → accumulate, dedup by ruleName
+        if (softAlerts.length > 0) {
+          yield* Ref.update(softAlertAccRef, (acc) => {
+            const next = new Map(acc)
+            for (const alert of softAlerts) {
+              next.set(alert.ruleName ?? alert.message, alert)
+            }
+            return next
+          })
         }
 
         // Check if subagent finished
@@ -489,6 +523,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         yield* killSubagent
         yield* Ref.set(planRef, null)
         yield* Ref.set(stepRef, 0)
+        yield* Ref.set(softAlertAccRef, new Map())
       })
 
     // --- Event loop ---

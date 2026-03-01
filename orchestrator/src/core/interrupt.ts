@@ -28,6 +28,8 @@ export interface InterruptRegistry<S = any, Sit = any> {
   evaluate(state: S, situation: Sit, currentTask?: string): Alert[]
   /** Return only critical alerts (triggers for replanning). If currentTask is provided, suppress rules whose suppressWhenTaskIs matches. */
   criticals(state: S, situation: Sit, currentTask?: string): Alert[]
+  /** Return non-critical alerts (high, medium, low). */
+  softAlerts(state: S, situation: Sit, currentTask?: string): Alert[]
 }
 
 /**
