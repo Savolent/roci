@@ -9,12 +9,17 @@ import {
   logStepResult,
   logTickReceived,
   formatError,
-  tag,
 } from "../logging/console-renderer.js"
-import type { DomainAdapter } from "./domain.js"
-import { DomainAdapterTag } from "./domain.js"
 import type { EventProcessor, EventResult } from "./event-source.js"
 import { EventProcessorTag } from "./event-source.js"
+import type { SkillRegistry } from "./skill.js"
+import { SkillRegistryTag } from "./skill.js"
+import type { InterruptRegistry } from "./interrupt.js"
+import { InterruptRegistryTag } from "./interrupt.js"
+import type { SituationClassifier } from "./situation.js"
+import { SituationClassifierTag } from "./situation.js"
+import type { StateRenderer } from "./state-renderer.js"
+import { StateRendererTag } from "./state-renderer.js"
 import type { Plan, StepTiming, Alert } from "./types.js"
 import {
   genericBrainPlan,
@@ -43,8 +48,11 @@ export interface StateMachineConfig<S, Evt> {
  */
 export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>) =>
   Effect.gen(function* () {
-    const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
     const eventProcessor = (yield* EventProcessorTag) as EventProcessor<S, Evt>
+    const skills = (yield* SkillRegistryTag) as SkillRegistry<S, Sit>
+    const interrupts = (yield* InterruptRegistryTag) as InterruptRegistry<S, Sit>
+    const classifier = (yield* SituationClassifierTag) as SituationClassifier<S, Sit>
+    const renderer = (yield* StateRendererTag) as StateRenderer<S, Sit>
     const charFs = yield* CharacterFs
     const log = yield* CharacterLog
 
@@ -153,12 +161,12 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
 
           // Build state diff from spawn-time snapshot
           const stateBefore = yield* Ref.get(spawnStateRef)
-          const stateAfter = adapter.richSnapshot(state)
-          const diffStr = adapter.stateDiff(stateBefore, stateAfter)
+          const stateAfter = renderer.richSnapshot(state)
+          const diffStr = renderer.stateDiff(stateBefore, stateAfter)
 
           // Run deterministic condition check
-          const situation = adapter.classify(state)
-          const conditionCheck = adapter.isStepComplete(currentStep, state, situation)
+          const situation = classifier.classify(state)
+          const conditionCheck = skills.isStepComplete(currentStep, state, situation)
 
           // Short-circuit: if deterministic check passes with a recognized condition, skip LLM
           if (conditionCheck.complete && conditionCheck.matchedCondition) {
@@ -203,7 +211,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
                 complete: true as const,
                 reason: `Brain evaluation failed (${e}), trusting subagent completion`,
                 matchedCondition: null,
-                relevantState: adapter.snapshot(state),
+                relevantState: renderer.snapshot(state),
               }),
             ),
           )
@@ -255,7 +263,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         if (plan && step < plan.steps.length) {
           const currentStep = plan.steps[step]
 
-          const midRunResult = adapter.isStepComplete(currentStep, state, situation)
+          const midRunResult = skills.isStepComplete(currentStep, state, situation)
           if (midRunResult.complete) {
             yield* recordStepTiming(currentStep.task, currentStep.goal, currentStep.timeoutTicks)
             yield* Fiber.interrupt(currentFiber).pipe(Effect.catchAll(() => Effect.void))
@@ -371,7 +379,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
           const tickCount = yield* Ref.get(tickCountRef)
           yield* Ref.set(subagentFiberRef, fiber)
           yield* Ref.set(stepStartTickRef, tickCount)
-          yield* Ref.set(spawnStateRef, adapter.richSnapshot(state))
+          yield* Ref.set(spawnStateRef, renderer.richSnapshot(state))
         }
       })
 
@@ -380,13 +388,13 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     /** Process a state update: the core decision cycle. */
     const handleStateUpdateEvent = (state: S) =>
       Effect.gen(function* () {
-        const situation = adapter.classify(state)
-        const briefing = adapter.briefing(state, situation)
+        const situation = classifier.classify(state)
+        const briefing = classifier.briefing(state, situation)
 
-        adapter.logStateBar(config.char.name, state, situation)
+        renderer.logStateBar(config.char.name, state, situation)
 
         // Check for interrupts
-        const criticals = adapter.detectInterrupts(situation)
+        const criticals = interrupts.criticals(state, situation)
         if (criticals.length > 0) {
           yield* handleInterrupt(criticals, state, situation, briefing)
         }
@@ -413,8 +421,8 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         yield* Ref.set(tickCountRef, tick)
 
         const state = yield* Ref.get(gameStateRef)
-        const situation = adapter.classify(state)
-        const briefing = adapter.briefing(state, situation)
+        const situation = classifier.classify(state)
+        const briefing = classifier.briefing(state, situation)
 
         yield* checkMidRun(state, situation)
 
@@ -445,8 +453,8 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     // Initial planning on startup
     yield* Effect.gen(function* () {
       const state = yield* Ref.get(gameStateRef)
-      const situation = adapter.classify(state)
-      const briefing = adapter.briefing(state, situation)
+      const situation = classifier.classify(state)
+      const briefing = classifier.briefing(state, situation)
       yield* maybeRequestPlan(state, situation, briefing)
       yield* maybeSpawnSubagent(state, situation)
     }).pipe(
@@ -530,26 +538,25 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
           }
 
           if (result.isInterrupt) {
-            // For combat interrupts, check if we're already handling combat
             const plan = yield* Ref.get(planRef)
             const currentStep = yield* Ref.get(stepRef)
-            const isInCombatPlan = plan && currentStep < plan.steps.length && plan.steps[currentStep].task === "combat"
+            const currentTask = plan && currentStep < plan.steps.length ? plan.steps[currentStep].task : undefined
 
-            if (!isInCombatPlan) {
-              const state = yield* Ref.get(gameStateRef)
-              const situation = adapter.classify(state)
-              const briefing = adapter.briefing(state, situation)
-              const combatUpdate = result.accumulatedContext?.combatUpdate as { attacker: string; target: string; damage: number } | undefined
-              const alerts: Alert[] = combatUpdate
-                ? [{
-                    priority: "critical",
-                    message: `Combat: ${combatUpdate.attacker} attacking ${combatUpdate.target} for ${combatUpdate.damage} damage`,
-                    suggestedAction: "Assess threat and respond",
-                  }]
-                : adapter.detectInterrupts(situation)
-              if (alerts.length > 0) {
-                yield* handleInterrupt(alerts, state, situation, briefing)
-              }
+            const state = yield* Ref.get(gameStateRef)
+            const situation = classifier.classify(state)
+
+            // Build alerts: prefer synthetic combat update alert if available, otherwise use registry
+            const combatUpdate = result.accumulatedContext?.combatUpdate as { attacker: string; target: string; damage: number } | undefined
+            const alerts: Alert[] = combatUpdate
+              ? (currentTask === "combat" ? [] : [{
+                  priority: "critical",
+                  message: `Combat: ${combatUpdate.attacker} attacking ${combatUpdate.target} for ${combatUpdate.damage} damage`,
+                  suggestedAction: "Assess threat and respond",
+                }])
+              : interrupts.criticals(state, situation, currentTask)
+            if (alerts.length > 0) {
+              const briefing = classifier.briefing(state, situation)
+              yield* handleInterrupt(alerts, state, situation, briefing)
             }
             return
           }

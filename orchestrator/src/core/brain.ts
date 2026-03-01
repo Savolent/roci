@@ -1,8 +1,10 @@
 import { Effect } from "effect"
 import { Claude, ClaudeError } from "../services/Claude.js"
 import type { AiFunction } from "./AiFunction.js"
-import type { DomainAdapter } from "./domain.js"
-import { DomainAdapterTag } from "./domain.js"
+import type { PromptBuilder } from "./prompt-builder.js"
+import { PromptBuilderTag } from "./prompt-builder.js"
+import type { StateRenderer } from "./state-renderer.js"
+import { StateRendererTag } from "./state-renderer.js"
 import type { Plan, PlanStep, StepCompletionResult, StepTiming, Alert } from "./types.js"
 
 // ── Plan parsing ────────────────────────────────────────────
@@ -64,15 +66,14 @@ export interface GenericBrainEvaluateInput<S, Sit> {
   tickIntervalSec: number
 }
 
-export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, Sit>, Plan, Claude | DomainAdapterTag, ClaudeError> => ({
+export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, Sit>, Plan, Claude | PromptBuilderTag, ClaudeError> => ({
   name: "brain.plan",
   execute: (input) =>
     Effect.gen(function* () {
       const claude = yield* Claude
-      const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
+      const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
 
-      const systemPrompt = adapter.planSystemPrompt({ tickIntervalSec: input.tickIntervalSec })
-      const userPrompt = adapter.planUserPrompt(input)
+      const { system: systemPrompt, user: userPrompt } = promptBuilder.planPrompt(input)
 
       const output = yield* claude.invoke({
         prompt: userPrompt,
@@ -92,15 +93,14 @@ export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, 
     }),
 })
 
-export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterruptInput<S, Sit>, Plan, Claude | DomainAdapterTag, ClaudeError> => ({
+export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterruptInput<S, Sit>, Plan, Claude | PromptBuilderTag, ClaudeError> => ({
   name: "brain.interrupt",
   execute: (input) =>
     Effect.gen(function* () {
       const claude = yield* Claude
-      const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
+      const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
 
-      const systemPrompt = adapter.interruptSystemPrompt()
-      const userPrompt = adapter.interruptUserPrompt(input)
+      const { system: systemPrompt, user: userPrompt } = promptBuilder.interruptPrompt(input)
 
       const output = yield* claude.invoke({
         prompt: userPrompt,
@@ -120,15 +120,15 @@ export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterrup
     }),
 })
 
-export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateInput<S, Sit>, StepCompletionResult, Claude | DomainAdapterTag, ClaudeError> => ({
+export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateInput<S, Sit>, StepCompletionResult, Claude | PromptBuilderTag | StateRendererTag, ClaudeError> => ({
   name: "brain.evaluate",
   execute: (input) =>
     Effect.gen(function* () {
       const claude = yield* Claude
-      const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
+      const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
+      const renderer = (yield* StateRendererTag) as StateRenderer<S, Sit>
 
-      const systemPrompt = adapter.evaluateSystemPrompt()
-      const userPrompt = adapter.evaluateUserPrompt(input)
+      const { system: systemPrompt, user: userPrompt } = promptBuilder.evaluatePrompt(input)
 
       const output = yield* claude.invoke({
         prompt: userPrompt,
@@ -144,7 +144,7 @@ export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateI
         json = fenceMatch[1]
       }
       const parsed = JSON.parse(json)
-      const stateSnapshot = adapter.snapshot(input.state)
+      const stateSnapshot = renderer.snapshot(input.state)
 
       return {
         complete: parsed.complete as boolean,

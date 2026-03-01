@@ -2,8 +2,13 @@ import { Effect, Queue, Layer } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import type { GameState } from "../../../harness/src/types.js"
 import type { GameEvent } from "../../../harness/src/ws-types.js"
-import { SpaceMoltAdapterLive } from "../domains/spacemolt/adapter.js"
 import { SpaceMoltEventProcessorLive } from "../domains/spacemolt/event-processor.js"
+import { SpaceMoltSkillRegistryLive } from "../domains/spacemolt/skills/index.js"
+import { SpaceMoltInterruptRegistryLive } from "../domains/spacemolt/interrupts.js"
+import { SpaceMoltSituationClassifierLive } from "../domains/spacemolt/situation.js"
+import { SpaceMoltStateRendererLive } from "../domains/spacemolt/renderer.js"
+import { SpaceMoltToolRegistryLive } from "../domains/spacemolt/tools.js"
+import { SpaceMoltPromptBuilderLive } from "../domains/spacemolt/prompt-builder.js"
 import { runStateMachine } from "../core/state-machine.js"
 
 export interface EventLoopConfig {
@@ -20,8 +25,8 @@ export interface EventLoopConfig {
 }
 
 /**
- * SpaceMolt event loop — provides the domain adapter and event processor
- * layers, then delegates to the generic state machine.
+ * SpaceMolt event loop — provides all domain service layers,
+ * then delegates to the generic state machine.
  */
 export const eventLoop = (config: EventLoopConfig) =>
   runStateMachine({
@@ -35,5 +40,18 @@ export const eventLoop = (config: EventLoopConfig) =>
     tickIntervalSec: config.tickIntervalSec,
     initialTick: config.initialTick,
   }).pipe(
-    Effect.provide(Layer.merge(SpaceMoltAdapterLive, SpaceMoltEventProcessorLive)),
+    Effect.provide(
+      SpaceMoltPromptBuilderLive.pipe(
+        Layer.provide(Layer.mergeAll(
+          SpaceMoltSkillRegistryLive,
+          SpaceMoltToolRegistryLive,
+        )),
+        Layer.merge(SpaceMoltEventProcessorLive),
+        Layer.merge(SpaceMoltSkillRegistryLive),
+        Layer.merge(SpaceMoltInterruptRegistryLive),
+        Layer.merge(SpaceMoltSituationClassifierLive),
+        Layer.merge(SpaceMoltStateRendererLive),
+        Layer.merge(SpaceMoltToolRegistryLive),
+      ),
+    ),
   )

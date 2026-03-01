@@ -1,4 +1,4 @@
-// Re-export harness types used throughout the SpaceMolt domain adapter.
+// Re-export harness types used throughout the SpaceMolt domain services.
 export type {
   GameState,
   Situation,

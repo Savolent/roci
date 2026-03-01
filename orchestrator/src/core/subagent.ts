@@ -4,8 +4,8 @@ import { CharacterLog } from "../logging/log-writer.js"
 import { demuxStream } from "../logging/log-demux.js"
 import { logStderr, logStreamEvent } from "../logging/console-renderer.js"
 import type { CharacterConfig } from "../services/CharacterFs.js"
-import type { DomainAdapter } from "./domain.js"
-import { DomainAdapterTag } from "./domain.js"
+import type { PromptBuilder } from "./prompt-builder.js"
+import { PromptBuilderTag } from "./prompt-builder.js"
 import type { PlanStep } from "./types.js"
 
 export interface GenericSubagentInput<S, Sit> {
@@ -27,12 +27,17 @@ export const runGenericSubagent = <S, Sit>(input: GenericSubagentInput<S, Sit>) 
   Effect.gen(function* () {
     const claude = yield* Claude
     const log = yield* CharacterLog
-    const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
+    const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
 
-    const prompt = adapter.subagentPrompt(input.step, input.state, input.situation, {
-      personality: input.personality,
-      values: input.values,
-      tickIntervalSec: input.tickIntervalSec,
+    const prompt = promptBuilder.subagentPrompt({
+      step: input.step,
+      state: input.state,
+      situation: input.situation,
+      identity: {
+        personality: input.personality,
+        values: input.values,
+        tickIntervalSec: input.tickIntervalSec,
+      },
     })
 
     yield* log.action(input.char, {
