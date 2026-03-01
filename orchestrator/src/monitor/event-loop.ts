@@ -1,7 +1,9 @@
-import { Effect, Queue, Layer } from "effect"
+import { Effect, Queue, Layer, Deferred } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import type { GameState } from "../../../harness/src/types.js"
 import type { GameEvent } from "../../../harness/src/ws-types.js"
+import type { ExitReason } from "../core/types.js"
+import type { LifecycleHooks } from "../core/lifecycle.js"
 import { SpaceMoltEventProcessorLive } from "../domains/spacemolt/event-processor.js"
 import { SpaceMoltSkillRegistryLive } from "../domains/spacemolt/skills/index.js"
 import { SpaceMoltInterruptRegistryLive } from "../domains/spacemolt/interrupts.js"
@@ -23,6 +25,8 @@ export interface EventLoopConfig {
   tickIntervalSec: number
   /** Current game tick at connection time, for initializing tick tracking. */
   initialTick: number
+  exitSignal?: Deferred.Deferred<ExitReason, never>
+  hooks?: LifecycleHooks
 }
 
 /**
@@ -40,6 +44,8 @@ export const eventLoop = (config: EventLoopConfig) =>
     initialState: config.initialState,
     tickIntervalSec: config.tickIntervalSec,
     initialTick: config.initialTick,
+    exitSignal: config.exitSignal,
+    hooks: config.hooks,
   }).pipe(
     Effect.provide(
       SpaceMoltPromptBuilderLive.pipe(

@@ -1,4 +1,4 @@
-import { Effect, Ref, Fiber, Queue } from "effect"
+import { Effect, Ref, Fiber, Queue, Deferred } from "effect"
 import { FileSystem } from "@effect/platform"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterFs } from "../services/CharacterFs.js"
@@ -22,7 +22,8 @@ import type { SituationClassifier } from "./situation.js"
 import { SituationClassifierTag } from "./situation.js"
 import type { StateRenderer } from "./state-renderer.js"
 import { StateRendererTag } from "./state-renderer.js"
-import type { Plan, StepTiming, Alert } from "./types.js"
+import type { Plan, StepTiming, Alert, ExitReason, StateMachineResult } from "./types.js"
+import type { LifecycleHooks } from "./lifecycle.js"
 import {
   genericBrainPlan,
   genericBrainInterrupt,
@@ -41,6 +42,8 @@ export interface StateMachineConfig<S, Evt> {
   initialState: S
   tickIntervalSec: number
   initialTick: number
+  exitSignal?: Deferred.Deferred<ExitReason, never>
+  hooks?: LifecycleHooks
 }
 
 /**
@@ -64,6 +67,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     const brainInterrupt = genericBrainInterrupt<S, Sit>()
     const brainEvaluate = genericBrainEvaluate<S, Sit>()
 
+    // --- Lifecycle hooks + exit signal ---
+    const hooks = config.hooks
+    const exitSignal = config.exitSignal ?? (yield* Deferred.make<ExitReason, never>())
+
     // --- State refs ---
     const planRef = yield* Ref.make<Plan | null>(null)
     const stepRef = yield* Ref.make(0)
@@ -75,6 +82,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     const stepTimingHistoryRef = yield* Ref.make<StepTiming[]>([])
     const lastProcessedTickRef = yield* Ref.make(0)
     const spawnStateRef = yield* Ref.make<Record<string, unknown> | null>(null)
+    const turnCountRef = yield* Ref.make(0)
     const tickIntervalSec = config.tickIntervalSec
 
     // --- Domain state ---
@@ -112,6 +120,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     /** Handle critical interrupts: kill subagent, ask brain for new plan. */
     const handleInterrupt = (criticals: Alert[], state: S, situation: Sit, briefing: string) =>
       Effect.gen(function* () {
+        if (hooks?.onInterrupt) {
+          yield* hooks.onInterrupt(criticals)
+        }
+
         yield* logToConsole(config.char.name, "monitor", `INTERRUPT: ${criticals.map((a) => a.message).join("; ")}`)
 
         yield* log.thought(config.char, {
@@ -191,6 +203,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
               subagentReport: report.slice(-500),
             })
 
+            if (hooks?.afterStep) {
+              yield* hooks.afterStep(step, conditionCheck)
+            }
+
             yield* Ref.set(stepRef, step + 1)
             yield* Ref.set(subagentFiberRef, null)
             yield* Ref.set(subagentReportRef, "")
@@ -236,6 +252,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             stateSnapshot: result.relevantState,
             subagentReport: report.slice(-500),
           })
+
+          if (hooks?.afterStep) {
+            yield* hooks.afterStep(step, result)
+          }
 
           if (result.complete) {
             yield* Ref.set(stepRef, step + 1)
@@ -289,6 +309,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         const noFiber = (yield* Ref.get(subagentFiberRef)) === null
 
         if (noFiber && (!plan || step >= (plan?.steps.length ?? 0))) {
+          if (hooks?.beforePlan) {
+            yield* hooks.beforePlan()
+          }
+
           const diary = yield* charFs.readDiary(config.char)
           const background = yield* charFs.readBackground(config.char)
           const values = yield* charFs.readValues(config.char)
@@ -327,6 +351,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             `New plan (${newPlan.steps.length} steps): ${newPlan.reasoning}`,
           )
 
+          if (hooks?.afterPlan) {
+            yield* hooks.afterPlan(newPlan)
+          }
+
           const tickCount = yield* Ref.get(tickCountRef)
           yield* Ref.set(planRef, newPlan)
           yield* Ref.set(stepRef, 0)
@@ -344,6 +372,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
 
         if (currentPlan && currentStep < currentPlan.steps.length) {
           const planStep = currentPlan.steps[currentStep]
+
+          if (hooks?.beforeStep) {
+            yield* hooks.beforeStep(currentStep, planStep.task)
+          }
 
           yield* logPlanTransition(config.char.name, currentPlan, currentStep)
 
@@ -467,8 +499,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
       }),
     )
 
-    yield* Effect.forever(
-      Effect.gen(function* () {
+    // Exitable event loop — runs forever when no exitSignal/hooks are provided
+    let running = true
+    while (running) {
+      yield* Effect.gen(function* () {
         const event = yield* Queue.take(config.events)
 
         // Process event through the domain event processor
@@ -547,6 +581,29 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
             return logToConsole(config.char.name, "error", `Event processing error: ${msg}`)
           }),
         )
-      }),
-    )
+
+        // Increment turn count
+        yield* Ref.update(turnCountRef, (n) => n + 1)
+
+        // Check shouldExit hook
+        if (hooks?.shouldExit) {
+          const wantsExit = yield* hooks.shouldExit()
+          if (wantsExit) {
+            yield* Deferred.succeed(exitSignal, { _tag: "HookRequested", reason: "shouldExit returned true" })
+          }
+        }
+
+        // Check if exitSignal has been resolved
+        const done = yield* Deferred.isDone(exitSignal)
+        if (done) {
+          running = false
+        }
+      })
+    }
+
+    // Return result — only reached when the loop exits
+    const exitReason = yield* Deferred.await(exitSignal)
+    const finalState = yield* Ref.get(gameStateRef)
+    const turnCount = yield* Ref.get(turnCountRef)
+    return { finalState, exitReason, turnCount } as StateMachineResult<S>
   })

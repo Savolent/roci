@@ -39,3 +39,16 @@ export interface Alert {
   message: string
   suggestedAction?: string
 }
+
+// --- Phase state machine types ---
+
+export type ExitReason =
+  | { readonly _tag: "PhaseComplete" }
+  | { readonly _tag: "HookRequested"; readonly reason: string }
+  | { readonly _tag: "ExternalSignal"; readonly reason: string }
+
+export interface StateMachineResult<S> {
+  readonly finalState: S
+  readonly exitReason: ExitReason
+  readonly turnCount: number
+}
