@@ -9,6 +9,7 @@ import { SpaceMoltSituationClassifierLive } from "../domains/spacemolt/situation
 import { SpaceMoltStateRendererLive } from "../domains/spacemolt/renderer.js"
 import { SpaceMoltToolRegistryLive } from "../domains/spacemolt/tools.js"
 import { SpaceMoltPromptBuilderLive } from "../domains/spacemolt/prompt-builder.js"
+import { SpaceMoltContextHandlerLive } from "../domains/spacemolt/context-handler.js"
 import { runStateMachine } from "../core/state-machine.js"
 
 export interface EventLoopConfig {
@@ -52,6 +53,7 @@ export const eventLoop = (config: EventLoopConfig) =>
         Layer.merge(SpaceMoltSituationClassifierLive),
         Layer.merge(SpaceMoltStateRendererLive),
         Layer.merge(SpaceMoltToolRegistryLive),
+        Layer.merge(SpaceMoltContextHandlerLive),
       ),
     ),
   )

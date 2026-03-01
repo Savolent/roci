@@ -12,6 +12,8 @@ import {
 } from "../logging/console-renderer.js"
 import type { EventProcessor, EventResult } from "./event-source.js"
 import { EventProcessorTag } from "./event-source.js"
+import type { ContextHandler } from "./context-handler.js"
+import { ContextHandlerTag } from "./context-handler.js"
 import type { SkillRegistry } from "./skill.js"
 import { SkillRegistryTag } from "./skill.js"
 import type { InterruptRegistry } from "./interrupt.js"
@@ -53,6 +55,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
     const interrupts = (yield* InterruptRegistryTag) as InterruptRegistry<S, Sit>
     const classifier = (yield* SituationClassifierTag) as SituationClassifier<S, Sit>
     const renderer = (yield* StateRendererTag) as StateRenderer<S, Sit>
+    const contextHandler = (yield* ContextHandlerTag) as ContextHandler
     const charFs = yield* CharacterFs
     const log = yield* CharacterLog
 
@@ -489,45 +492,12 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
           result.log()
         }
 
-        // Accumulate context (e.g. chat messages)
+        // Accumulate context (e.g. chat messages) via domain context handler
         if (result.accumulatedContext) {
-          if (result.accumulatedContext.chatMessage) {
-            const msg = result.accumulatedContext.chatMessage as { channel: string; sender: string; content: string }
-            yield* Ref.update(chatContextRef, (msgs) => {
-              const updated = [...msgs, msg]
-              return updated.slice(-20)
-            })
-            yield* logToConsole(config.char.name, "ws:chat",
-              `[${msg.channel}] ${msg.sender}: ${msg.content}`)
-            yield* log.word(config.char, {
-              timestamp: new Date().toISOString(),
-              source: "ws",
-              character: config.char.name,
-              type: "chat_received",
-              ...msg,
-            })
-          }
-          if (result.accumulatedContext.combatUpdate) {
-            const p = result.accumulatedContext.combatUpdate as { attacker: string; target: string; damage: number; destroyed?: boolean }
-            yield* logToConsole(config.char.name, "ws:combat",
-              `${p.attacker} -> ${p.target}: ${p.damage} dmg${p.destroyed ? " [DESTROYED]" : ""}`)
-            yield* log.action(config.char, {
-              timestamp: new Date().toISOString(),
-              source: "ws",
-              character: config.char.name,
-              type: "combat_update",
-              ...p,
-            })
-          }
-          if (result.accumulatedContext.deathEvent) {
-            const d = result.accumulatedContext.deathEvent as { killer_name: string; cause: string; respawn_base: string }
-            yield* logToConsole(config.char.name, "ws:death",
-              `Killed by ${d.killer_name}: ${d.cause}. Respawning at ${d.respawn_base}`)
-          }
-          if (result.accumulatedContext.error) {
-            const e = result.accumulatedContext.error as { code: string; message: string }
-            yield* logToConsole(config.char.name, "ws:error", `[${e.code}] ${e.message}`)
-          }
+          const { chatMessages } = yield* contextHandler.processContext(
+            result.accumulatedContext, config.char)
+          yield* Ref.update(chatContextRef, (msgs) =>
+            [...msgs, ...chatMessages].slice(-20))
         }
 
         // Handle the different event result types

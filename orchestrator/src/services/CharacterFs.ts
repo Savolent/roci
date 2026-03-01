@@ -1,7 +1,11 @@
 import { Context, Effect, Layer } from "effect"
 import { FileSystem } from "@effect/platform"
-import type { Credentials } from "../../../harness/src/types.js"
 import * as path from "node:path"
+
+export interface Credentials {
+  username: string
+  password: string
+}
 
 export class CharacterFsError {
   readonly _tag = "CharacterFsError"
