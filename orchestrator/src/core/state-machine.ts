@@ -12,7 +12,9 @@ import {
   tag,
 } from "../logging/console-renderer.js"
 import type { DomainAdapter } from "./domain.js"
+import { DomainAdapterTag } from "./domain.js"
 import type { EventProcessor, EventResult } from "./event-source.js"
+import { EventProcessorTag } from "./event-source.js"
 import type { Plan, StepTiming, Alert } from "./types.js"
 import {
   genericBrainPlan,
@@ -23,8 +25,6 @@ import { runGenericSubagent } from "./subagent.js"
 import * as path from "node:path"
 
 export interface StateMachineConfig<S, Evt> {
-  adapter: DomainAdapter<S, unknown>
-  eventProcessor: EventProcessor<S, Evt>
   char: CharacterConfig
   containerId: string
   playerName: string
@@ -43,7 +43,8 @@ export interface StateMachineConfig<S, Evt> {
  */
 export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>) =>
   Effect.gen(function* () {
-    const adapter = config.adapter as DomainAdapter<S, Sit>
+    const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
+    const eventProcessor = (yield* EventProcessorTag) as EventProcessor<S, Evt>
     const charFs = yield* CharacterFs
     const log = yield* CharacterLog
 
@@ -115,7 +116,6 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
 
         const background = yield* charFs.readBackground(config.char)
         const newPlan = yield* brainInterrupt.execute({
-          adapter,
           state,
           situation,
           alerts: criticals,
@@ -188,7 +188,6 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
           }
 
           const result = yield* brainEvaluate.execute({
-            adapter,
             step: currentStep,
             subagentReport: report,
             state,
@@ -287,7 +286,6 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
           const stepTimingHistory = yield* Ref.get(stepTimingHistoryRef)
 
           const newPlan = yield* brainPlan.execute({
-            adapter,
             state,
             situation,
             diary,
@@ -346,7 +344,6 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
           ).pipe(Effect.catchAll(() => Effect.succeed("")))
 
           const fiber = yield* runGenericSubagent({
-            adapter,
             char: config.char,
             containerId: config.containerId,
             playerName: config.playerName,
@@ -464,7 +461,7 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
         const event = yield* Queue.take(config.events)
 
         // Process event through the domain event processor
-        const result: EventResult<S> = config.eventProcessor.processEvent(
+        const result: EventResult<S> = eventProcessor.processEvent(
           event,
           yield* Ref.get(gameStateRef),
         )

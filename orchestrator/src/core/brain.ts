@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { Claude, ClaudeError } from "../services/Claude.js"
 import type { AiFunction } from "./AiFunction.js"
 import type { DomainAdapter } from "./domain.js"
+import { DomainAdapterTag } from "./domain.js"
 import type { Plan, PlanStep, StepCompletionResult, StepTiming, Alert } from "./types.js"
 
 // ── Plan parsing ────────────────────────────────────────────
@@ -30,7 +31,6 @@ function parsePlan(output: string): Plan {
 // ── Generic brain functions ─────────────────────────────────
 
 export interface GenericBrainPlanInput<S, Sit> {
-  adapter: DomainAdapter<S, Sit>
   state: S
   situation: Sit
   diary: string
@@ -44,7 +44,6 @@ export interface GenericBrainPlanInput<S, Sit> {
 }
 
 export interface GenericBrainInterruptInput<S, Sit> {
-  adapter: DomainAdapter<S, Sit>
   state: S
   situation: Sit
   alerts: Alert[]
@@ -54,7 +53,6 @@ export interface GenericBrainInterruptInput<S, Sit> {
 }
 
 export interface GenericBrainEvaluateInput<S, Sit> {
-  adapter: DomainAdapter<S, Sit>
   step: PlanStep
   subagentReport: string
   state: S
@@ -66,14 +64,15 @@ export interface GenericBrainEvaluateInput<S, Sit> {
   tickIntervalSec: number
 }
 
-export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, Sit>, Plan, Claude, ClaudeError> => ({
+export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, Sit>, Plan, Claude | DomainAdapterTag, ClaudeError> => ({
   name: "brain.plan",
   execute: (input) =>
     Effect.gen(function* () {
       const claude = yield* Claude
+      const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
 
-      const systemPrompt = input.adapter.planSystemPrompt({ tickIntervalSec: input.tickIntervalSec })
-      const userPrompt = input.adapter.planUserPrompt(input)
+      const systemPrompt = adapter.planSystemPrompt({ tickIntervalSec: input.tickIntervalSec })
+      const userPrompt = adapter.planUserPrompt(input)
 
       const output = yield* claude.invoke({
         prompt: userPrompt,
@@ -93,14 +92,15 @@ export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, 
     }),
 })
 
-export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterruptInput<S, Sit>, Plan, Claude, ClaudeError> => ({
+export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterruptInput<S, Sit>, Plan, Claude | DomainAdapterTag, ClaudeError> => ({
   name: "brain.interrupt",
   execute: (input) =>
     Effect.gen(function* () {
       const claude = yield* Claude
+      const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
 
-      const systemPrompt = input.adapter.interruptSystemPrompt()
-      const userPrompt = input.adapter.interruptUserPrompt(input)
+      const systemPrompt = adapter.interruptSystemPrompt()
+      const userPrompt = adapter.interruptUserPrompt(input)
 
       const output = yield* claude.invoke({
         prompt: userPrompt,
@@ -120,14 +120,15 @@ export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterrup
     }),
 })
 
-export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateInput<S, Sit>, StepCompletionResult, Claude, ClaudeError> => ({
+export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateInput<S, Sit>, StepCompletionResult, Claude | DomainAdapterTag, ClaudeError> => ({
   name: "brain.evaluate",
   execute: (input) =>
     Effect.gen(function* () {
       const claude = yield* Claude
+      const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
 
-      const systemPrompt = input.adapter.evaluateSystemPrompt()
-      const userPrompt = input.adapter.evaluateUserPrompt(input)
+      const systemPrompt = adapter.evaluateSystemPrompt()
+      const userPrompt = adapter.evaluateUserPrompt(input)
 
       const output = yield* claude.invoke({
         prompt: userPrompt,
@@ -143,7 +144,7 @@ export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateI
         json = fenceMatch[1]
       }
       const parsed = JSON.parse(json)
-      const stateSnapshot = input.adapter.snapshot(input.state)
+      const stateSnapshot = adapter.snapshot(input.state)
 
       return {
         complete: parsed.complete as boolean,

@@ -1,16 +1,40 @@
-import type { EventProcessor, EventResult } from "../../core/event-source.js"
-import type { GameState, GameEvent, StateUpdateEvent, Alert } from "./types.js"
-import { tag } from "../../logging/console-renderer.js"
+import { Layer } from "effect"
+import { EventProcessorTag, type EventProcessor, type EventResult } from "../../core/event-source.js"
+import type { GameState, GameEvent, StateUpdateEvent } from "./types.js"
+
+function handleStateUpdate(payload: StateUpdateEvent["payload"]): EventResult<GameState> {
+  return {
+    stateUpdate: (prev) => ({
+      ...prev,
+      player: payload.player,
+      ship: payload.ship,
+      nearby: payload.nearby,
+      inCombat: payload.in_combat,
+      tick: payload.tick,
+      timestamp: Date.now(),
+      travelProgress: payload.travel_progress != null
+        ? {
+            travel_progress: payload.travel_progress,
+            travel_destination: payload.travel_destination ?? "",
+            travel_type: payload.travel_type ?? "travel",
+            travel_arrival_tick: payload.travel_arrival_tick ?? 0,
+          }
+        : null,
+    }),
+    tick: payload.tick > 0 ? payload.tick : undefined,
+    isStateUpdate: true,
+  }
+}
 
 /**
  * SpaceMolt-specific event processor.
  * Translates raw WebSocket GameEvents into state machine operations.
  */
-export class SpaceMoltEventProcessor implements EventProcessor<GameState, GameEvent> {
+const spaceMoltEventProcessor: EventProcessor<GameState, GameEvent> = {
   processEvent(event: GameEvent, currentState: GameState): EventResult<GameState> {
     switch (event.type) {
       case "state_update":
-        return this.handleStateUpdate(event.payload)
+        return handleStateUpdate(event.payload)
 
       case "tick":
         return {
@@ -86,29 +110,8 @@ export class SpaceMoltEventProcessor implements EventProcessor<GameState, GameEv
         // Unknown event types — no action needed
         return {}
     }
-  }
-
-  private handleStateUpdate(payload: StateUpdateEvent["payload"]): EventResult<GameState> {
-    return {
-      stateUpdate: (prev) => ({
-        ...prev,
-        player: payload.player,
-        ship: payload.ship,
-        nearby: payload.nearby,
-        inCombat: payload.in_combat,
-        tick: payload.tick,
-        timestamp: Date.now(),
-        travelProgress: payload.travel_progress != null
-          ? {
-              travel_progress: payload.travel_progress,
-              travel_destination: payload.travel_destination ?? "",
-              travel_type: payload.travel_type ?? "travel",
-              travel_arrival_tick: payload.travel_arrival_tick ?? 0,
-            }
-          : null,
-      }),
-      tick: payload.tick > 0 ? payload.tick : undefined,
-      isStateUpdate: true,
-    }
-  }
+  },
 }
+
+/** Layer providing the SpaceMolt event processor as the EventProcessor service. */
+export const SpaceMoltEventProcessorLive = Layer.succeed(EventProcessorTag, spaceMoltEventProcessor)

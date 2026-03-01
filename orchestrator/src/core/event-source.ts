@@ -1,3 +1,5 @@
+import { Context } from "effect"
+
 /**
  * Translates raw domain events into state machine operations.
  *
@@ -27,3 +29,14 @@ export interface EventResult<S> {
   /** Logging side effect — called after state is updated. */
   log?: () => void
 }
+
+/**
+ * Effect service tag for the event processor.
+ *
+ * Typed as EventProcessor<any, any> — concrete typing is recovered via
+ * a cast at the state-machine level.
+ */
+export class EventProcessorTag extends Context.Tag("EventProcessor")<
+  EventProcessorTag,
+  EventProcessor<any, any>
+>() {}

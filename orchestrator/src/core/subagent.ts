@@ -5,10 +5,10 @@ import { demuxStream } from "../logging/log-demux.js"
 import { logStderr, logStreamEvent } from "../logging/console-renderer.js"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import type { DomainAdapter } from "./domain.js"
+import { DomainAdapterTag } from "./domain.js"
 import type { PlanStep } from "./types.js"
 
 export interface GenericSubagentInput<S, Sit> {
-  adapter: DomainAdapter<S, Sit>
   char: CharacterConfig
   containerId: string
   playerName: string
@@ -27,8 +27,9 @@ export const runGenericSubagent = <S, Sit>(input: GenericSubagentInput<S, Sit>) 
   Effect.gen(function* () {
     const claude = yield* Claude
     const log = yield* CharacterLog
+    const adapter = (yield* DomainAdapterTag) as DomainAdapter<S, Sit>
 
-    const prompt = input.adapter.subagentPrompt(input.step, input.state, input.situation, {
+    const prompt = adapter.subagentPrompt(input.step, input.state, input.situation, {
       personality: input.personality,
       values: input.values,
       tickIntervalSec: input.tickIntervalSec,

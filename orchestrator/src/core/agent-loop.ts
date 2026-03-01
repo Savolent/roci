@@ -1,15 +1,10 @@
 import { Effect, Queue } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
-import { CharacterFs } from "../services/CharacterFs.js"
 import { CharacterLog } from "../logging/log-writer.js"
 import { logToConsole } from "../logging/console-renderer.js"
-import type { DomainAdapter } from "./domain.js"
-import type { EventProcessor } from "./event-source.js"
 import { runStateMachine } from "./state-machine.js"
 
 export interface AgentLoopConfig<S, Sit, Evt> {
-  adapter: DomainAdapter<S, Sit>
-  eventProcessor: EventProcessor<S, Evt>
   char: CharacterConfig
   containerId: string
   projectRoot: string
@@ -65,8 +60,6 @@ export const agentLoop = <S, Sit, Evt>(config: AgentLoopConfig<S, Sit, Evt>) =>
       })
 
       yield* runStateMachine({
-        adapter: config.adapter,
-        eventProcessor: config.eventProcessor,
         char: config.char,
         containerId: config.containerId,
         playerName: config.char.name,

@@ -1,3 +1,4 @@
+import { Context } from "effect"
 import type { Plan, PlanStep, StepCompletionResult, StepTiming, Alert } from "./types.js"
 
 /**
@@ -88,3 +89,15 @@ export interface DomainAdapter<S, Sit> {
   /** Compact console output line per tick. */
   logStateBar(name: string, state: S, situation: Sit): void
 }
+
+/**
+ * Effect service tag for the domain adapter.
+ *
+ * Typed as DomainAdapter<any, any> — concrete typing is recovered at the
+ * state-machine level via a cast to DomainAdapter<S, Sit>, matching the
+ * generic type parameters that flow through the state machine.
+ */
+export class DomainAdapterTag extends Context.Tag("DomainAdapter")<
+  DomainAdapterTag,
+  DomainAdapter<any, any>
+>() {}

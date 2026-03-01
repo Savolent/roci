@@ -1,5 +1,6 @@
-import type { DomainAdapter } from "../../core/domain.js"
-import type { Plan, PlanStep, StepCompletionResult, StepTiming, Alert } from "../../core/types.js"
+import { Layer } from "effect"
+import { DomainAdapterTag, type DomainAdapter } from "../../core/domain.js"
+import type { PlanStep, StepCompletionResult, StepTiming, Alert, Plan } from "../../core/types.js"
 import type { GameState, Situation } from "./types.js"
 import { classifySituation } from "../../../../harness/src/situation/classifier.js"
 import { detectAlerts } from "../../../../harness/src/situation/alerts.js"
@@ -19,48 +20,48 @@ import {
 /**
  * SpaceMolt domain adapter: implements DomainAdapter for the SpaceMolt MMO.
  */
-export class SpaceMoltAdapter implements DomainAdapter<GameState, Situation> {
+const spaceMoltAdapter: DomainAdapter<GameState, Situation> = {
   classify(state: GameState): Situation {
     const situation = classifySituation(state)
     situation.alerts = detectAlerts(state, situation)
     return situation
-  }
+  },
 
   detectInterrupts(situation: Situation): Alert[] {
     return situation.alerts.filter((a) => a.priority === "critical")
-  }
+  },
 
   briefing(state: GameState, situation: Situation): string {
     return generateBriefing(state, situation)
-  }
+  },
 
   snapshot(state: GameState): Record<string, unknown> {
     return snapshot(state)
-  }
+  },
 
   richSnapshot(state: GameState): Record<string, unknown> {
     return richSnapshot(state)
-  }
+  },
 
   stateDiff(before: Record<string, unknown> | null, after: Record<string, unknown>): string {
     return stateDiff(before, after)
-  }
+  },
 
   isStepComplete(step: PlanStep, state: GameState, situation: Situation): StepCompletionResult {
     return isStepComplete(step, state, situation)
-  }
+  },
 
   planSystemPrompt(ctx: { tickIntervalSec: number }): string {
     return buildPlanSystemPrompt(ctx.tickIntervalSec)
-  }
+  },
 
   evaluateSystemPrompt(): string {
     return EVALUATE_SYSTEM_PROMPT
-  }
+  },
 
   interruptSystemPrompt(): string {
     return INTERRUPT_SYSTEM_PROMPT
-  }
+  },
 
   planUserPrompt(ctx: {
     state: GameState
@@ -75,7 +76,7 @@ export class SpaceMoltAdapter implements DomainAdapter<GameState, Situation> {
     tickIntervalSec: number
   }): string {
     return buildPlanUserPrompt(ctx)
-  }
+  },
 
   interruptUserPrompt(ctx: {
     state: GameState
@@ -86,7 +87,7 @@ export class SpaceMoltAdapter implements DomainAdapter<GameState, Situation> {
     background: string
   }): string {
     return buildInterruptUserPrompt(ctx)
-  }
+  },
 
   evaluateUserPrompt(ctx: {
     step: PlanStep
@@ -100,7 +101,7 @@ export class SpaceMoltAdapter implements DomainAdapter<GameState, Situation> {
     tickIntervalSec: number
   }): string {
     return buildEvaluateUserPrompt(ctx)
-  }
+  },
 
   subagentPrompt(step: PlanStep, state: GameState, situation: Situation, identity: {
     personality: string
@@ -108,13 +109,16 @@ export class SpaceMoltAdapter implements DomainAdapter<GameState, Situation> {
     tickIntervalSec: number
   }): string {
     return buildSubagentPrompt(step, state, situation, identity)
-  }
+  },
 
   renderStateForPlanning(state: GameState, situation: Situation): string {
-    return this.briefing(state, situation)
-  }
+    return generateBriefing(state, situation)
+  },
 
   logStateBar(name: string, state: GameState, situation: Situation): void {
     logStateBar(name, state, situation)
-  }
+  },
 }
+
+/** Layer providing the SpaceMolt domain adapter as the DomainAdapter service. */
+export const SpaceMoltAdapterLive = Layer.succeed(DomainAdapterTag, spaceMoltAdapter)
