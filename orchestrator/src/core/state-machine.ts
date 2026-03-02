@@ -5,7 +5,6 @@ import { CharacterLog } from "../logging/log-writer.js"
 import {
   logToConsole,
   logTickReceived,
-  formatError,
 } from "../logging/console-renderer.js"
 import type { EventResult } from "./event-source.js"
 import { EventProcessorTag } from "./event-source.js"
@@ -124,7 +123,7 @@ export const runStateMachine = (config: StateMachineConfig) =>
           type: "interrupt",
           alerts: criticals,
           action: "killing subagent, replanning",
-        })
+        }).pipe(Effect.catchAll(() => Effect.void))
 
         yield* killSubagent(subagentFiberRef)
 
@@ -144,7 +143,7 @@ export const runStateMachine = (config: StateMachineConfig) =>
           character: config.char.name,
           type: "interrupt_plan",
           plan: newPlan,
-        })
+        }).pipe(Effect.catchAll(() => Effect.void))
 
         yield* logToConsole(config.char.name, "brain", `Interrupt plan: ${newPlan.reasoning}`)
 
@@ -233,6 +232,9 @@ export const runStateMachine = (config: StateMachineConfig) =>
     /** Process a reset event (e.g. death): kill everything, start fresh. */
     const handleReset = () =>
       Effect.gen(function* () {
+        if (hooks?.onReset) {
+          yield* hooks.onReset()
+        }
         yield* killSubagent(subagentFiberRef)
         yield* Ref.set(planRef, null)
         yield* Ref.set(stepRef, 0)
@@ -281,7 +283,7 @@ export const runStateMachine = (config: StateMachineConfig) =>
 
         // Run logging side effect
         if (result.log) {
-          result.log()
+          yield* Effect.sync(() => result.log!())
         }
 
         // Accumulate context (e.g. chat messages) via domain context handler
@@ -334,8 +336,8 @@ export const runStateMachine = (config: StateMachineConfig) =>
             return
           }
         }).pipe(
-          Effect.catchAll((e) => {
-            const msg = formatError(e)
+          Effect.catchAllCause((cause) => {
+            const msg = cause.toString().slice(0, 500)
             return logToConsole(config.char.name, "error", `Event processing error: ${msg}`)
           }),
         )

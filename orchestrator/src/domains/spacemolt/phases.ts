@@ -12,6 +12,12 @@ import { eventLoop } from "../../monitor/event-loop.js"
 import { logToConsole } from "../../logging/console-renderer.js"
 import { CharacterLog } from "../../logging/log-writer.js"
 
+/** Ticks in the active game loop before transitioning to social phase. At 30s/tick, 100 ticks ~ 50 min. */
+const ACTIVE_SESSION_TURNS = 100
+
+/** Diary lines above this threshold trigger dream compression. */
+const DIARY_COMPRESSION_THRESHOLD = 200
+
 type SMPhaseContext = PhaseContext<GameState, GameEvent>
 type SMPhaseResult = PhaseResult<GameState, GameEvent>
 type SMConnectionState = ConnectionState<GameState, GameEvent>
@@ -48,7 +54,7 @@ const startupPhase = definePhase("startup", (context) =>
     // Dream if diary is long
     const diary = yield* charFs.readDiary(context.char)
     const diaryLines = diary.split("\n").length
-    if (diaryLines > 200) {
+    if (diaryLines > DIARY_COMPRESSION_THRESHOLD) {
       yield* logToConsole(context.char.name, "orchestrator", `Diary is ${diaryLines} lines — dreaming...`)
       yield* dream.execute({ char: context.char }).pipe(
         Effect.catchAll((e) =>
@@ -67,8 +73,6 @@ const startupPhase = definePhase("startup", (context) =>
  * Exits after MIN_ACTIVE_TURNS turns (~50 minutes at 30s/tick),
  * then transitions to social phase.
  */
-const MIN_ACTIVE_TURNS = 100
-
 const activePhase = definePhase("active", (context) =>
   Effect.gen(function* () {
     const log = yield* CharacterLog
@@ -93,7 +97,7 @@ const activePhase = definePhase("active", (context) =>
     const exitSignal = yield* Deferred.make<ExitReason, never>()
 
     const hooks: LifecycleHooks = {
-      shouldExit: (turnCount: number) => Effect.succeed(turnCount >= MIN_ACTIVE_TURNS),
+      shouldExit: (turnCount: number) => Effect.succeed(turnCount >= ACTIVE_SESSION_TURNS),
     }
 
     yield* eventLoop({
@@ -140,7 +144,7 @@ const reflectionPhase = definePhase("reflection", (context) =>
 
     const diary = yield* charFs.readDiary(context.char)
     const diaryLines = diary.split("\n").length
-    if (diaryLines > 200) {
+    if (diaryLines > DIARY_COMPRESSION_THRESHOLD) {
       yield* logToConsole(context.char.name, "orchestrator", `Diary is ${diaryLines} lines — dreaming...`)
       yield* dream.execute({ char: context.char }).pipe(
         Effect.catchAll((e) =>

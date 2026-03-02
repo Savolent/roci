@@ -168,7 +168,9 @@ export const makeGameSocketLive = () =>
                       }
                       Effect.runFork(
                         Queue.offer(events, synthetic).pipe(
-                          Effect.catchAll(() => Effect.void),
+                          Effect.catchAll(() =>
+                            Effect.sync(() => console.warn(`[${characterName}:ws] Event queue full — dropping state_update event`))
+                          ),
                         ),
                       )
                       return
@@ -178,7 +180,9 @@ export const makeGameSocketLive = () =>
                   // Offer original event to queue
                   Effect.runFork(
                     Queue.offer(events, event).pipe(
-                      Effect.catchAll(() => Effect.void),
+                      Effect.catchAll(() =>
+                        Effect.sync(() => console.warn(`[${characterName}:ws] Event queue full — dropping ${event.type} event`))
+                      ),
                     ),
                   )
                 } catch (err) {

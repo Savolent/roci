@@ -1,5 +1,8 @@
 import { Effect } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
+import type { PhaseRegistry } from "../core/phase.js"
+import type { GameState } from "../game/types.js"
+import type { GameEvent } from "../game/ws-types.js"
 import { runPhases } from "../core/phase-runner.js"
 import { spaceMoltPhaseRegistry } from "../domains/spacemolt/phases.js"
 import { logToConsole } from "../logging/console-renderer.js"
@@ -12,6 +15,8 @@ export interface CharacterLoopConfig {
   containerId?: string
   /** Env vars passed at docker exec time (e.g. CLAUDE_CODE_OAUTH_TOKEN) */
   containerEnv?: Record<string, string>
+  /** Override the default SpaceMolt phase registry. */
+  phaseRegistry?: PhaseRegistry<GameState, GameEvent, never>
 }
 
 /**
@@ -30,7 +35,7 @@ export const characterLoop = (config: CharacterLoopConfig & { containerId: strin
           containerId: config.containerId,
           containerEnv: config.containerEnv,
         },
-        spaceMoltPhaseRegistry,
+        config.phaseRegistry ?? spaceMoltPhaseRegistry,
       )
     }),
   )

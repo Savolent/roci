@@ -6,7 +6,6 @@ import WebSocket from "ws"
 import { Docker, DockerLive } from "./services/Docker.js"
 import { CharacterFs, CharacterFsLive, makeCharacterConfig } from "./services/CharacterFs.js"
 import { PromptTemplatesLive } from "./services/PromptTemplates.js"
-import { makeGameApiLive } from "./services/GameApi.js"
 import { ClaudeLive } from "./services/Claude.js"
 import { makeGameSocketLive } from "./services/GameSocket.js"
 import { CharacterLogLive } from "./logging/log-writer.js"
@@ -260,7 +259,6 @@ const serviceLayer = Layer.mergeAll(
   ClaudeLive,
   CharacterFsLive,
   PromptTemplatesLive,
-  makeGameApiLive(),
   makeGameSocketLive(),
   projectRootLayer,
   CharacterLogLive.pipe(Layer.provide(projectRootLayer)),
