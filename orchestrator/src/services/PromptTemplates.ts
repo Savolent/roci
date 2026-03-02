@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect"
-import { FileSystem } from "@effect/platform"
+import { fileURLToPath } from "node:url"
 import * as path from "node:path"
+import { loadTemplate } from "../core/template.js"
 
 export class PromptTemplateError {
   readonly _tag = "PromptTemplateError"
@@ -18,43 +19,38 @@ export class PromptTemplates extends Context.Tag("PromptTemplates")<
   }
 >() {}
 
-export const makePromptTemplatesLive = (projectRoot: string) =>
-  Layer.effect(
-    PromptTemplates,
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const templateDir = path.resolve(projectRoot, ".devcontainer")
+const PROMPTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../core/prompts")
 
-      const readTemplate = (filename: string) =>
-        fs.readFileString(path.join(templateDir, filename)).pipe(
-          Effect.mapError(
-            (e) => new PromptTemplateError(`Failed to read template ${filename}`, e),
-          ),
-        )
-
-      const dreamDiaryFilename = (dreamType: "normal" | "good" | "nightmare") => {
-        if (dreamType === "good") return "good-dream-diary-prompt.txt"
-        if (dreamType === "nightmare") return "nightmare-diary-prompt.txt"
-        return "dream-diary-prompt.txt"
-      }
-
-      const dreamSecretsFilename = (dreamType: "normal" | "good" | "nightmare") => {
-        if (dreamType === "good") return "good-dream-secrets-prompt.txt"
-        if (dreamType === "nightmare") return "nightmare-secrets-prompt.txt"
-        return "dream-secrets-prompt.txt"
-      }
-
-      return PromptTemplates.of({
-        getSessionPrompt: () => readTemplate("session-prompt.txt"),
-        getDinnerPrompt: () => readTemplate("dinner-prompt.txt"),
-        getDreamDiaryPrompt: (dreamType) => readTemplate(dreamDiaryFilename(dreamType)),
-        getDreamSecretsPrompt: (dreamType) => readTemplate(dreamSecretsFilename(dreamType)),
-        getInGameClaudeMd: () =>
-          fs.readFileString(path.resolve(projectRoot, "in-game-CLAUDE.md")).pipe(
-            Effect.mapError(
-              (e) => new PromptTemplateError("Failed to read in-game-CLAUDE.md", e),
-            ),
-          ),
-      })
-    }),
+const read = (filename: string) =>
+  loadTemplate(path.join(PROMPTS_DIR, filename)).pipe(
+    Effect.mapError(
+      (e) => new PromptTemplateError(`Failed to read template ${filename}`, e),
+    ),
   )
+
+export const PromptTemplatesLive = Layer.effect(
+  PromptTemplates,
+  Effect.gen(function* () {
+    // Eagerly load all templates at construction
+    const session = yield* read("session.md")
+    const dinner = yield* read("dinner.md")
+    const dreamDiary = yield* read("dream-diary.md")
+    const dreamDiaryGood = yield* read("dream-diary-good.md")
+    const dreamDiaryNightmare = yield* read("dream-diary-nightmare.md")
+    const dreamSecrets = yield* read("dream-secrets.md")
+    const dreamSecretsGood = yield* read("dream-secrets-good.md")
+    const dreamSecretsNightmare = yield* read("dream-secrets-nightmare.md")
+    const inGameClaude = yield* read("in-game-claude.md")
+
+    const diaryByType = { normal: dreamDiary, good: dreamDiaryGood, nightmare: dreamDiaryNightmare }
+    const secretsByType = { normal: dreamSecrets, good: dreamSecretsGood, nightmare: dreamSecretsNightmare }
+
+    return PromptTemplates.of({
+      getSessionPrompt: () => Effect.succeed(session),
+      getDinnerPrompt: () => Effect.succeed(dinner),
+      getDreamDiaryPrompt: (dreamType) => Effect.succeed(diaryByType[dreamType]),
+      getDreamSecretsPrompt: (dreamType) => Effect.succeed(secretsByType[dreamType]),
+      getInGameClaudeMd: () => Effect.succeed(inGameClaude),
+    })
+  }),
+)

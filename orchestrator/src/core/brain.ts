@@ -74,12 +74,11 @@ export const genericBrainPlan = <S, Sit>(): AiFunction<GenericBrainPlanInput<S, 
       const claude = yield* Claude
       const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
 
-      const { system: systemPrompt, user: userPrompt } = promptBuilder.planPrompt(input)
+      const prompt = promptBuilder.planPrompt(input)
 
       const output = yield* claude.invoke({
-        prompt: userPrompt,
+        prompt,
         model: "opus",
-        systemPrompt,
         outputFormat: "text",
         maxTurns: 1,
       })
@@ -101,12 +100,11 @@ export const genericBrainInterrupt = <S, Sit>(): AiFunction<GenericBrainInterrup
       const claude = yield* Claude
       const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
 
-      const { system: systemPrompt, user: userPrompt } = promptBuilder.interruptPrompt(input)
+      const prompt = promptBuilder.interruptPrompt(input)
 
       const output = yield* claude.invoke({
-        prompt: userPrompt,
+        prompt,
         model: "opus",
-        systemPrompt,
         outputFormat: "text",
         maxTurns: 1,
       })
@@ -129,12 +127,11 @@ export const genericBrainEvaluate = <S, Sit>(): AiFunction<GenericBrainEvaluateI
       const promptBuilder = (yield* PromptBuilderTag) as PromptBuilder<S, Sit>
       const renderer = (yield* StateRendererTag) as StateRenderer<S, Sit>
 
-      const { system: systemPrompt, user: userPrompt } = promptBuilder.evaluatePrompt(input)
+      const prompt = promptBuilder.evaluatePrompt(input)
 
       const output = yield* claude.invoke({
-        prompt: userPrompt,
+        prompt,
         model: "opus",
-        systemPrompt,
         outputFormat: "text",
         maxTurns: 1,
       })

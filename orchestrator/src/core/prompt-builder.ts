@@ -49,12 +49,11 @@ export interface SubagentPromptContext<S, Sit> {
 
 /**
  * Assembles all prompts for the brain and subagent.
- * Assembles all prompts for the brain and subagent.
  */
 export interface PromptBuilder<S = unknown, Sit = unknown> {
-  planPrompt(ctx: PlanPromptContext<S, Sit>): { system: string; user: string }
-  interruptPrompt(ctx: InterruptPromptContext<S, Sit>): { system: string; user: string }
-  evaluatePrompt(ctx: EvaluatePromptContext<S, Sit>): { system: string; user: string }
+  planPrompt(ctx: PlanPromptContext<S, Sit>): string
+  interruptPrompt(ctx: InterruptPromptContext<S, Sit>): string
+  evaluatePrompt(ctx: EvaluatePromptContext<S, Sit>): string
   subagentPrompt(ctx: SubagentPromptContext<S, Sit>): string
 }
 

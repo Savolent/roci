@@ -5,6 +5,7 @@ import { Claude } from "../services/Claude.js"
 import { CharacterFs, type CharacterConfig } from "../services/CharacterFs.js"
 import { PromptTemplates } from "../services/PromptTemplates.js"
 import { CharacterLog } from "../logging/log-writer.js"
+import { renderTemplate } from "../core/template.js"
 
 export interface DinnerInput {
   char: CharacterConfig
@@ -52,10 +53,11 @@ export const dinner = {
 
       const dinnerTemplate = yield* templates.getDinnerPrompt()
 
-      const prompt = dinnerTemplate
-        .replace("{{SESSION_REPORT}}", sessionReport)
-        .replace("{{DIARY}}", diary)
-        .replace("{{VALUES}}", values)
+      const prompt = renderTemplate(dinnerTemplate, {
+        SESSION_REPORT: sessionReport,
+        DIARY: diary,
+        VALUES: values,
+      })
 
       const updatedDiary = yield* claude.invoke({
         prompt,

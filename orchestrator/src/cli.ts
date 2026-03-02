@@ -5,7 +5,7 @@ import * as path from "node:path"
 import WebSocket from "ws"
 import { Docker, DockerLive } from "./services/Docker.js"
 import { CharacterFs, CharacterFsLive, makeCharacterConfig } from "./services/CharacterFs.js"
-import { makePromptTemplatesLive } from "./services/PromptTemplates.js"
+import { PromptTemplatesLive } from "./services/PromptTemplates.js"
 import { makeGameApiLive } from "./services/GameApi.js"
 import { ClaudeLive } from "./services/Claude.js"
 import { makeGameSocketLive } from "./services/GameSocket.js"
@@ -257,7 +257,7 @@ const serviceLayer = Layer.mergeAll(
   DockerLive,
   ClaudeLive,
   CharacterFsLive,
-  makePromptTemplatesLive(PROJECT_ROOT),
+  PromptTemplatesLive,
   makeGameApiLive(),
   makeGameSocketLive(),
   makeCharacterLogLive(PROJECT_ROOT),

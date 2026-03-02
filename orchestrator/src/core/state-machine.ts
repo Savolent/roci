@@ -1,7 +1,7 @@
 import { Effect, Ref, Fiber, Queue, Deferred } from "effect"
-import { FileSystem } from "@effect/platform"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterFs } from "../services/CharacterFs.js"
+import { PromptTemplates } from "../services/PromptTemplates.js"
 import { CharacterLog } from "../logging/log-writer.js"
 import {
   logToConsole,
@@ -30,7 +30,6 @@ import {
   genericBrainEvaluate,
 } from "./brain.js"
 import { runGenericSubagent } from "./subagent.js"
-import * as path from "node:path"
 
 export interface StateMachineConfig<S, Evt> {
   char: CharacterConfig
@@ -405,10 +404,10 @@ export const runStateMachine = <S, Sit, Evt>(config: StateMachineConfig<S, Evt>)
 
           const personality = yield* charFs.readBackground(config.char)
           const values = yield* charFs.readValues(config.char)
-          const fs = yield* FileSystem.FileSystem
-          const systemPrompt = yield* fs.readFileString(
-            path.resolve(config.projectRoot, "in-game-CLAUDE.md"),
-          ).pipe(Effect.catchAll(() => Effect.succeed("")))
+          const templates = yield* PromptTemplates
+          const systemPrompt = yield* templates.getInGameClaudeMd().pipe(
+            Effect.catchAll(() => Effect.succeed("")),
+          )
 
           const fiber = yield* runGenericSubagent({
             char: config.char,
