@@ -5,7 +5,7 @@ import type { Alert } from "./types.js"
  * A declarative interrupt rule. When its condition fires, the state machine
  * may kill the current subagent and replan.
  */
-export interface InterruptRule<S = any, Sit = any> {
+export interface InterruptRule<S = unknown, Sit = unknown> {
   readonly name: string
   /** Only "critical" rules trigger immediate replanning */
   readonly priority: Alert["priority"]
@@ -22,7 +22,7 @@ export interface InterruptRule<S = any, Sit = any> {
  * Registry of all interrupt rules. Evaluated on each state update to
  * detect conditions that warrant replanning.
  */
-export interface InterruptRegistry<S = any, Sit = any> {
+export interface InterruptRegistry<S = unknown, Sit = unknown> {
   readonly rules: ReadonlyArray<InterruptRule<S, Sit>>
   /** Evaluate all rules, return alerts sorted by priority. If currentTask is provided, suppress rules whose suppressWhenTaskIs matches. */
   evaluate(state: S, situation: Sit, currentTask?: string): Alert[]
@@ -35,7 +35,5 @@ export interface InterruptRegistry<S = any, Sit = any> {
 /**
  * Effect service tag for the interrupt registry.
  */
-export class InterruptRegistryTag extends Context.Tag("InterruptRegistry")<
-  InterruptRegistryTag,
-  InterruptRegistry
->() {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- type erasure for Effect DI; recovered via cast in state-machine
+export class InterruptRegistryTag extends Context.Tag("InterruptRegistry")<InterruptRegistryTag, InterruptRegistry<any, any>>() {}

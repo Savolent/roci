@@ -5,7 +5,7 @@ import type { PlanStep, StepCompletionResult } from "./types.js"
  * A single agent capability — bundles instructions, completion logic,
  * and defaults so adding a new skill is a single-file operation.
  */
-export interface Skill<S = any, Sit = any> {
+export interface Skill<S = unknown, Sit = unknown> {
   readonly name: string
   readonly description: string
   /** Instructions given to the subagent for this task */
@@ -22,7 +22,7 @@ export interface Skill<S = any, Sit = any> {
  * Registry of all skills the agent can perform.
  * Single source of truth for task types, instructions, and completion conditions.
  */
-export interface SkillRegistry<S = any, Sit = any> {
+export interface SkillRegistry<S = unknown, Sit = unknown> {
   readonly skills: ReadonlyArray<Skill<S, Sit>>
   /** Look up a skill by task name */
   getSkill(name: string): Skill<S, Sit> | undefined
@@ -35,7 +35,5 @@ export interface SkillRegistry<S = any, Sit = any> {
 /**
  * Effect service tag for the skill registry.
  */
-export class SkillRegistryTag extends Context.Tag("SkillRegistry")<
-  SkillRegistryTag,
-  SkillRegistry
->() {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- type erasure for Effect DI; recovered via cast in state-machine
+export class SkillRegistryTag extends Context.Tag("SkillRegistry")<SkillRegistryTag, SkillRegistry<any, any>>() {}

@@ -15,11 +15,11 @@ export interface AgentLoopConfig<S, _Sit, Evt> {
     initialState: S
     tickIntervalSec: number
     initialTick: number
-  }, unknown, any>
+  }, unknown, never>
   /** Optional startup hook (e.g. dream/memory compression). */
-  onStartup?: () => Effect.Effect<void, unknown, any>
+  onStartup?: () => Effect.Effect<void, unknown, never>
   /** Optional shutdown hook (e.g. dinner/reflection). */
-  onShutdown?: () => Effect.Effect<void, unknown, any>
+  onShutdown?: () => Effect.Effect<void, unknown, never>
 }
 
 /**

@@ -154,21 +154,14 @@ const reflectionPhase = definePhase("reflection", (context) =>
   }),
 )
 
-/** Union of all service requirements across all SpaceMolt phases. */
-type SpaceMoltPhaseR =
-  | typeof startupPhase extends Phase<any, any, infer R> ? R : never
-  | typeof activePhase extends Phase<any, any, infer R> ? R : never
-  | typeof socialPhase extends Phase<any, any, infer R> ? R : never
-  | typeof reflectionPhase extends Phase<any, any, infer R> ? R : never
-
 const allPhases = [
-  startupPhase as Phase<GameState, GameEvent, SpaceMoltPhaseR>,
-  activePhase as Phase<GameState, GameEvent, SpaceMoltPhaseR>,
-  socialPhase as Phase<GameState, GameEvent, SpaceMoltPhaseR>,
-  reflectionPhase as Phase<GameState, GameEvent, SpaceMoltPhaseR>,
+  startupPhase as Phase<GameState, GameEvent, never>,
+  activePhase as Phase<GameState, GameEvent, never>,
+  socialPhase as Phase<GameState, GameEvent, never>,
+  reflectionPhase as Phase<GameState, GameEvent, never>,
 ] as const
 
-export const spaceMoltPhaseRegistry: PhaseRegistry<GameState, GameEvent, SpaceMoltPhaseR> = {
+export const spaceMoltPhaseRegistry: PhaseRegistry<GameState, GameEvent, never> = {
   phases: allPhases,
   getPhase: (name: string) => allPhases.find((p) => p.name === name),
   initialPhase: "startup",

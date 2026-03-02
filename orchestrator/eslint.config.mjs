@@ -8,8 +8,7 @@ export default tseslint.config(
     plugins: { "@effect": effectPlugin },
     rules: {
       "@effect/no-import-from-barrel-package": "error",
-      // Effect's generic interfaces use `any` defaults for type params (S = any, Sit = any)
-      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-explicit-any": "error",
       // Unused vars with _ prefix are intentional (e.g. _sit in interrupt conditions)
       "@typescript-eslint/no-unused-vars": ["error", {
         argsIgnorePattern: "^_",

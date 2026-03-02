@@ -8,7 +8,7 @@ import { logToConsole } from "../logging/console-renderer.js"
  * @param agentEffects — Array of agent loop Effects to run concurrently.
  */
 export const runAgentOrchestrator = (
-  agentEffects: Effect.Effect<void, unknown, any>[],
+  agentEffects: Effect.Effect<void, unknown, never>[],
 ) =>
   Effect.gen(function* () {
     yield* logToConsole("orchestrator", "main", `Starting ${agentEffects.length} agent(s)...`)

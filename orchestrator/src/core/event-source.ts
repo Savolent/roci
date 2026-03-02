@@ -33,10 +33,13 @@ export interface EventResult<S> {
 /**
  * Effect service tag for the event processor.
  *
- * Typed as EventProcessor<any, any> — concrete typing is recovered via
- * a cast at the state-machine level.
+ * Tags use `any` for type erasure — generic interfaces are invariant in their
+ * type params, so concrete implementations (e.g. EventProcessor<GameState, GameEvent>)
+ * can't assign to EventProcessor<unknown, unknown>. The state machine recovers
+ * concrete types via explicit casts.
  */
 export class EventProcessorTag extends Context.Tag("EventProcessor")<
   EventProcessorTag,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   EventProcessor<any, any>
 >() {}

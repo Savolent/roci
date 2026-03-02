@@ -51,7 +51,7 @@ export interface SubagentPromptContext<S, Sit> {
  * Assembles all prompts for the brain and subagent.
  * Assembles all prompts for the brain and subagent.
  */
-export interface PromptBuilder<S = any, Sit = any> {
+export interface PromptBuilder<S = unknown, Sit = unknown> {
   planPrompt(ctx: PlanPromptContext<S, Sit>): { system: string; user: string }
   interruptPrompt(ctx: InterruptPromptContext<S, Sit>): { system: string; user: string }
   evaluatePrompt(ctx: EvaluatePromptContext<S, Sit>): { system: string; user: string }
@@ -61,7 +61,5 @@ export interface PromptBuilder<S = any, Sit = any> {
 /**
  * Effect service tag for the prompt builder.
  */
-export class PromptBuilderTag extends Context.Tag("PromptBuilder")<
-  PromptBuilderTag,
-  PromptBuilder
->() {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- type erasure for Effect DI; recovered via cast in state-machine
+export class PromptBuilderTag extends Context.Tag("PromptBuilder")<PromptBuilderTag, PromptBuilder<any, any>>() {}

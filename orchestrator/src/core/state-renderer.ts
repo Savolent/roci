@@ -8,7 +8,7 @@ import { Context } from "effect"
  * @typeParam S — Domain state
  * @typeParam Sit — Structured situation
  */
-export interface StateRenderer<S = any, Sit = any> {
+export interface StateRenderer<S = unknown, Sit = unknown> {
   /** Compact snapshot for logging. */
   snapshot(state: S): Record<string, unknown>
   /** Rich snapshot (includes breakdown data + tick) for diff tracking. */
@@ -24,7 +24,5 @@ export interface StateRenderer<S = any, Sit = any> {
 /**
  * Effect service tag for the state renderer.
  */
-export class StateRendererTag extends Context.Tag("StateRenderer")<
-  StateRendererTag,
-  StateRenderer
->() {}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- type erasure for Effect DI; recovered via cast in state-machine
+export class StateRendererTag extends Context.Tag("StateRenderer")<StateRendererTag, StateRenderer<any, any>>() {}
