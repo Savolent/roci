@@ -165,4 +165,4 @@ orchestrator/src/
 └── logging/                   # JSONL writers, stream-json demux, console output
 ```
 
-The orchestrator imports types and pure functions from `../harness/src/` (classifier, alerts, briefing, state collector, API client) via TypeScript path mapping. No harness code is duplicated.
+Game types, API client, situation classifiers, and briefing generators live in `src/game/`.

@@ -1,24 +1,24 @@
 import { Context, Effect, Layer } from "effect"
-import { SpaceMoltAPI } from "../../../harness/src/api/client.js"
+import { SpaceMoltAPI } from "../game/api/client.js"
 import {
   collectGameState,
   collectSocialState,
   fetchGalaxyMap,
-} from "../../../harness/src/situation/state-collector.js"
-import { classifySituation } from "../../../harness/src/situation/classifier.js"
-import { detectAlerts } from "../../../harness/src/situation/alerts.js"
+} from "../game/situation/state-collector.js"
+import { classifySituation } from "../game/situation/classifier.js"
+import { detectAlerts } from "../game/situation/alerts.js"
 import {
   generateBriefing,
   formatAlerts,
   formatSocialBriefing,
-} from "../../../harness/src/context/briefing.js"
+} from "../game/context/briefing.js"
 import type {
   Credentials,
   GameState,
   Situation,
   SocialState,
   GalaxyMap,
-} from "../../../harness/src/types.js"
+} from "../game/types.js"
 
 export class GameApiError {
   readonly _tag = "GameApiError"

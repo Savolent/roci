@@ -21,7 +21,6 @@ import type {
 	ChatMessage,
 	ForumThread,
 	GalaxyMap,
-	MapSystem,
 } from "../types.js";
 
 /**

@@ -6,7 +6,7 @@ import type {
   PlanPromptContext,
 } from "../../core/prompt-builder.js"
 import { PromptBuilderTag } from "../../core/prompt-builder.js"
-import type { GameState, Situation } from "../../../../harness/src/types.js"
+import type { GameState, Situation } from "../../game/types.js"
 import { snapshot } from "./state-renderer.js"
 import { loadTemplate, renderTemplate } from "../../core/template.js"
 

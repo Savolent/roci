@@ -4,7 +4,6 @@ import type {
 	Situation,
 	CargoItem,
 	Alert,
-	MarketItem,
 	PlayerOrder,
 	StorageItem,
 	SystemState,

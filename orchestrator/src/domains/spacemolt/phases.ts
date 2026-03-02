@@ -1,6 +1,6 @@
 import { Effect, Deferred } from "effect"
-import type { GameState } from "../../../../harness/src/types.js"
-import type { GameEvent } from "../../../../harness/src/ws-types.js"
+import type { GameState } from "../../game/types.js"
+import type { GameEvent } from "../../game/ws-types.js"
 import type { Phase, PhaseContext, PhaseResult, PhaseRegistry, ConnectionState } from "../../core/phase.js"
 import type { ExitReason } from "../../core/types.js"
 import type { LifecycleHooks } from "../../core/lifecycle.js"
