@@ -6,20 +6,22 @@ The harness runs autonomous SpaceMolt game sessions inside a shared Docker conta
 
 ```
 cli.ts
- └─ runOrchestrator(configs[])                      pipeline/orchestrator.ts
+ └─ runOrchestrator(configs[], domain)              pipeline/orchestrator.ts
      ├─ ensureSharedContainer()                      Start/reuse Docker container
      └─ for each character: fork characterLoop()     pipeline/character-loop.ts
-         ├─ gameSocket.connect(creds)                WS connection → Queue<GameEvent>
-         ├─ dream() (if diary > 200 lines)           Compress diary via LLM
-         └─ eventLoop(config)                        monitor/event-loop.ts
-             └─ runStateMachine(config)              core/state-machine.ts
-                 ├─ initial planning + spawn
-                 └─ { event loop }
+         └─ runPhases(context, phaseRegistry)         core/phase-runner.ts
+             ├─ startup: connect WS, dream if needed  domains/spacemolt/phases.ts
+             ├─ active: eventLoop(config)              monitor/event-loop.ts
+             │   └─ runStateMachine(config)            core/state-machine.ts
+             │       ├─ initial planning + spawn
+             │       └─ { event loop }
+             ├─ social: dinner reflection
+             └─ reflection: dream, loop → active
 ```
 
 ### Domain Services
 
-The state machine is domain-agnostic. All domain knowledge is injected via 7 Effect service layers, provided in `event-loop.ts`:
+The state machine is domain-agnostic. All domain knowledge is injected via 7 Effect service layers, provided in `event-loop.ts`. See `domains/DOMAIN_GUIDE.md` for full documentation on building new domains.
 
 | Service | Tag | Role |
 |---------|-----|------|
@@ -196,7 +198,6 @@ Single shared container `roci-crew`, all characters isolated via `--add-dir`.
 | `shared-resources/sm-cli/` | `/work/sm-cli` | RW |
 | `.claude/` | `/work/.claude` | RO |
 | `.devcontainer/` | `/opt/devcontainer` | RO |
-| `harness/` | `/opt/harness` | RO |
 | `scripts/` | `/opt/scripts` | RO |
 
 **What the subagent sees** (via `--add-dir` in `run-step.sh`):
@@ -212,7 +213,6 @@ Single shared container `roci-crew`, all characters isolated via `--add-dir`.
 | Path | Purpose |
 |------|---------|
 | `/opt/scripts/` | run-step.sh |
-| `/opt/harness/` | TypeScript sensing harness |
 | `/opt/devcontainer/` | Dockerfile, firewall script |
 
 ## Log Files
@@ -263,10 +263,15 @@ All events printed type-tagged with timestamp and character name:
 | `core/state-machine.ts` | Plan/act/evaluate event loop |
 | `core/brain.ts` | Brain functions: plan, interrupt, evaluate (Opus) |
 | `core/subagent.ts` | Build prompt, run in container, handle exit |
+| `core/phase.ts` | Phase, PhaseContext, PhaseResult, PhaseRegistry interfaces |
+| `core/phase-runner.ts` | Runs phases in sequence, handles Continue/Restart/Shutdown |
+| `core/domain-bundle.ts` | DomainBundle type + DomainConfig interface |
+| `core/lifecycle.ts` | LifecycleHooks (shouldExit, onInterrupt, onReset) |
 | `core/skill.ts` | `Skill` + `SkillRegistry` interface (stub until skills redesign) |
-| `core/interrupt.ts` | `InterruptRule` + `InterruptRegistry` interface |
+| `core/interrupt.ts` | `InterruptRule` + `InterruptRegistry` interface + `createInterruptRegistry()` factory |
 | `core/situation.ts` | `SituationClassifier` interface |
 | `core/state-renderer.ts` | `StateRenderer` interface |
+| `core/context-handler.ts` | `ContextHandler` interface |
 | `core/prompt-builder.ts` | `PromptBuilder` interface + prompt context types |
 | `core/event-source.ts` | `EventProcessor` interface |
 | `core/types.ts` | Plan, PlanStep, StepTiming, StepCompletionResult, Alert |
@@ -275,14 +280,19 @@ All events printed type-tagged with timestamp and character name:
 
 | File | Role |
 |------|------|
-| `domains/spacemolt/interrupts.ts` | Declarative interrupt rules + `InterruptRegistryLive` |
+| `domains/spacemolt/config.ts` | DomainConfig factory (mounts, image, setup) |
+| `domains/spacemolt/index.ts` | Domain bundle (all 7 service layers) + `spaceMoltServiceLayer` |
+| `domains/spacemolt/phases.ts` | Phase registry: startup, active, social, reflection |
+| `domains/spacemolt/interrupts.ts` | Declarative interrupt rules via `createInterruptRegistry()` |
 | `domains/spacemolt/situation.ts` | Classify state + generate briefings (alerts delegated to InterruptRegistry) |
 | `domains/spacemolt/renderer.ts` | State snapshots, diffs, console bar |
 | `domains/spacemolt/prompt-builder.ts` | All LLM prompt assembly; subagents reference `sm --help` for commands |
 | `domains/spacemolt/event-processor.ts` | Maps WS GameEvents to EventResults |
 | `domains/spacemolt/context-handler.ts` | Processes chat, combat, death, error context from WS events |
 | `domains/spacemolt/state-renderer.ts` | Underlying snapshot/diff functions |
-| `domains/spacemolt/identity.ts` | Wraps CharacterConfig into generic AgentIdentity interface |
+| `domains/spacemolt/game-socket-impl.ts` | WebSocket connection, reconnection, event queue |
+| `domains/spacemolt/game-socket.ts` | Re-exports GameSocket tag + types |
+| `domains/DOMAIN_GUIDE.md` | Guide for building new domains |
 
 ### Pipeline & services
 
@@ -290,16 +300,15 @@ All events printed type-tagged with timestamp and character name:
 |------|------|
 | `cli.ts` | CLI commands and service wiring |
 | `pipeline/orchestrator.ts` | Container lifecycle, fork character fibers |
-| `pipeline/character-loop.ts` | Per-character: login, dream, start event loop |
-| `monitor/event-loop.ts` | Provides all domain service layers, delegates to state machine |
+| `pipeline/character-loop.ts` | Per-character: delegates to phase runner |
+| `monitor/event-loop.ts` | Provides domain service layers, delegates to state machine |
 | `services/Claude.ts` | Host invoke + container exec with stream/exit |
-| `services/GameApi.ts` | REST client for game.spacemolt.com |
-| `services/GameSocket.ts` | WebSocket connection + event queue |
+| `services/ProjectRoot.ts` | Project root path service |
+| `services/CharacterFs.ts` | Character file system operations |
+| `services/Docker.ts` | Docker container management |
 | `logging/log-demux.ts` | Raw capture, parse, route to logs + console |
 | `logging/log-writer.ts` | CharacterLog service (JSONL append) |
 | `logging/console-renderer.ts` | Type-tagged + narrative console output |
 | `scripts/run-step.sh` | In-container: cd to player dir, exec claude -p |
 | `.devcontainer/Dockerfile` | Container image: node20, claude-code, firewall |
 | `.devcontainer/init-firewall.sh` | iptables whitelist for allowed domains |
-
-Note: `core/agent-loop.ts` and `core/orchestrator.ts` exist as generic versions of `pipeline/character-loop.ts` and `pipeline/orchestrator.ts` but aren't wired in yet.

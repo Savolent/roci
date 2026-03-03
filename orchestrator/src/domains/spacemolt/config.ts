@@ -39,11 +39,6 @@ const containerMounts = (projectRoot: string): ContainerMount[] => [
     readonly: true,
   },
   {
-    host: path.resolve(projectRoot, "harness"),
-    container: "/opt/harness",
-    readonly: true,
-  },
-  {
     host: path.resolve(projectRoot, "scripts"),
     container: "/opt/scripts",
     readonly: true,
