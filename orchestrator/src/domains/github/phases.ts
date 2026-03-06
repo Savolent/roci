@@ -173,7 +173,12 @@ const startupPhase = {
       yield* logToConsole(context.char.name, "orchestrator", `All repos ready`)
 
       const connection: GHConnection = { events, initialState, tickIntervalSec, initialTick }
-      return { _tag: "Continue", next: "active", connection } as PhaseResult
+      return {
+        _tag: "Continue",
+        next: "active",
+        connection,
+        data: { ghToken: ghConfig.token },
+      } as PhaseResult
     }),
 }
 
@@ -193,6 +198,13 @@ const activePhase = {
 
       const conn = context.connection as GHConnection
       const { events, initialState, tickIntervalSec, initialTick } = conn
+
+      // Merge GH_TOKEN into container env so gh CLI and git push work in subagents
+      const ghToken = context.phaseData?.ghToken as string | undefined
+      const containerEnv = {
+        ...context.containerEnv,
+        ...(ghToken ? { GH_TOKEN: ghToken } : {}),
+      }
 
       yield* logToConsole(context.char.name, "orchestrator", "Starting event loop...")
 
@@ -219,7 +231,7 @@ const activePhase = {
         char: context.char,
         containerId: context.containerId,
         playerName: context.char.name,
-        containerEnv: context.containerEnv,
+        containerEnv,
         events: events as Queue.Queue<unknown>,
         initialState,
         tickIntervalSec,

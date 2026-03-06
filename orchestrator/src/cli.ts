@@ -301,9 +301,127 @@ const wsTestCommand = Command.make("ws-test", { character: wsTestCharacter }, (a
   }),
 ).pipe(Command.withDescription("Bare WebSocket connectivity test — no Effect queue, just raw ws"))
 
+// --- init command ---
+const initDomain = Options.text("domain").pipe(
+  Options.withDescription("Domain to initialize (e.g. github)"),
+)
+
+const initCommand = Command.make("init", { domain: initDomain }, (args) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+
+    if (args.domain === "github") {
+      // Ensure repos/ directory exists on host
+      const reposDir = path.resolve(PROJECT_ROOT, "repos")
+      const reposDirExists = yield* fs.exists(reposDir)
+      if (!reposDirExists) {
+        yield* fs.makeDirectory(reposDir, { recursive: true })
+        yield* logToConsole("init", "cli", `Created ${reposDir}`)
+      } else {
+        yield* logToConsole("init", "cli", `${reposDir} already exists`)
+      }
+
+      // Check config.json has a github entry
+      const configPath = path.resolve(PROJECT_ROOT, "config.json")
+      const configExists = yield* fs.exists(configPath)
+      if (!configExists) {
+        yield* logToConsole("init", "cli", `No config.json found — creating with empty github domain`)
+        yield* fs.writeFileString(configPath, JSON.stringify({ github: { characters: [] } }, null, 2) + "\n")
+      } else {
+        const raw = yield* fs.readFileString(configPath)
+        const config = JSON.parse(raw)
+        if (!config.github) {
+          yield* logToConsole("init", "cli", `Adding github domain to config.json`)
+          config.github = { characters: [] }
+          yield* fs.writeFileString(configPath, JSON.stringify(config, null, 2) + "\n")
+        } else {
+          yield* logToConsole("init", "cli", `config.json already has github domain`)
+        }
+      }
+
+      // Validate each github character has github.json
+      const configRaw = yield* fs.readFileString(configPath)
+      const config = JSON.parse(configRaw)
+      const characters = config.github?.characters ?? []
+
+      if (characters.length === 0) {
+        yield* logToConsole("init", "cli", `No characters configured in config.json github domain.`)
+        yield* logToConsole("init", "cli", `Add characters to config.json, create player directories, then run init again.`)
+        yield* logToConsole("init", "cli", ``)
+        yield* logToConsole("init", "cli", `Each character needs:`)
+        yield* logToConsole("init", "cli", `  players/<name>/me/github.json  — { "token": "ghp_...", "repos": ["owner/repo"] }`)
+        yield* logToConsole("init", "cli", `  players/<name>/me/background.md — personality and identity`)
+        yield* logToConsole("init", "cli", `  players/<name>/me/VALUES.md     — working values`)
+        yield* logToConsole("init", "cli", `  players/<name>/me/DIARY.md      — empty diary template`)
+        yield* logToConsole("init", "cli", `  players/<name>/me/SECRETS.md    — empty`)
+        return
+      }
+
+      let allGood = true
+      for (const charName of characters) {
+        const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
+        const charDirExists = yield* fs.exists(charDir)
+        if (!charDirExists) {
+          yield* logToConsole("init", "cli", `MISSING: ${charDir} — create this directory with character files`)
+          allGood = false
+          continue
+        }
+
+        const ghJsonPath = path.resolve(charDir, "github.json")
+        const ghJsonExists = yield* fs.exists(ghJsonPath)
+        if (!ghJsonExists) {
+          yield* logToConsole("init", "cli", `MISSING: ${ghJsonPath}`)
+          allGood = false
+          continue
+        }
+
+        // Validate github.json contents
+        const ghJsonRaw = yield* fs.readFileString(ghJsonPath)
+        try {
+          const ghConfig = JSON.parse(ghJsonRaw)
+          if (!ghConfig.token || ghConfig.token === "ghp_placeholder") {
+            yield* logToConsole("init", "cli", `WARNING: ${charName} — github.json has placeholder token`)
+            allGood = false
+          }
+          if (!ghConfig.repos || ghConfig.repos.length === 0) {
+            yield* logToConsole("init", "cli", `WARNING: ${charName} — github.json has no repos`)
+            allGood = false
+          } else {
+            yield* logToConsole("init", "cli", `OK: ${charName} — ${ghConfig.repos.length} repo(s): ${ghConfig.repos.join(", ")}`)
+          }
+        } catch {
+          yield* logToConsole("init", "cli", `ERROR: ${charName} — github.json is not valid JSON`)
+          allGood = false
+        }
+
+        // Check for required character files
+        for (const file of ["background.md", "VALUES.md", "DIARY.md"]) {
+          const filePath = path.resolve(charDir, file)
+          const fileExists = yield* fs.exists(filePath)
+          if (!fileExists) {
+            yield* logToConsole("init", "cli", `MISSING: ${charName}/${file}`)
+            allGood = false
+          }
+        }
+      }
+
+      if (allGood) {
+        yield* logToConsole("init", "cli", ``)
+        yield* logToConsole("init", "cli", `GitHub domain is ready. Run: npx tsx src/cli.ts start --domain github`)
+      } else {
+        yield* logToConsole("init", "cli", ``)
+        yield* logToConsole("init", "cli", `Fix the issues above before starting.`)
+      }
+    } else {
+      yield* logToConsole("init", "cli", `Unknown domain: ${args.domain}. Supported: github`)
+    }
+  }),
+).pipe(Command.withDescription("Initialize a domain — validate config, create directories"))
+
 // --- root command ---
 const rociCommand = Command.make("roci").pipe(
   Command.withSubcommands([
+    initCommand,
     startCommand,
     stopCommand,
     pauseCommand,
