@@ -1,7 +1,7 @@
 import { Layer } from "effect"
 import type { InterruptRule } from "../../core/interrupt.js"
 import { InterruptRegistryTag, createInterruptRegistry } from "../../core/interrupt.js"
-import type { RepoState } from "./types.js"
+import type { GitHubState } from "./types.js"
 
 const UNTRIAGED_THRESHOLD = 5
 const STALE_PR_DAYS = 7
@@ -11,8 +11,11 @@ const interruptRules: ReadonlyArray<InterruptRule> = [
   {
     name: "ci_failing_main",
     priority: "critical",
-    condition: (s) => (s as RepoState).ciStatus === "failing",
-    message: () => "CI is failing on main. Investigate and fix immediately.",
+    condition: (s) => (s as GitHubState).repos.some((r) => r.ciStatus === "failing"),
+    message: (s) => {
+      const failing = (s as GitHubState).repos.filter((r) => r.ciStatus === "failing")
+      return `CI is failing in: ${failing.map((r) => `${r.owner}/${r.repo}`).join(", ")}. Investigate and fix immediately.`
+    },
     suggestedAction: "investigate_ci",
   },
 
@@ -21,14 +24,18 @@ const interruptRules: ReadonlyArray<InterruptRule> = [
     name: "untriaged_issues",
     priority: "medium",
     condition: (s) => {
-      const state = s as RepoState
-      const untriaged = state.openIssues.filter((i) => !i.labels.includes("triaged"))
-      return untriaged.length >= UNTRIAGED_THRESHOLD
+      const state = s as GitHubState
+      const total = state.repos.reduce((sum, r) =>
+        sum + r.openIssues.filter((i) => !i.labels.includes("triaged")).length, 0,
+      )
+      return total >= UNTRIAGED_THRESHOLD
     },
     message: (s) => {
-      const state = s as RepoState
-      const count = state.openIssues.filter((i) => !i.labels.includes("triaged")).length
-      return `${count} untriaged issues need attention.`
+      const state = s as GitHubState
+      const total = state.repos.reduce((sum, r) =>
+        sum + r.openIssues.filter((i) => !i.labels.includes("triaged")).length, 0,
+      )
+      return `${total} untriaged issues across repos need attention.`
     },
     suggestedAction: "triage_issues",
   },
@@ -38,15 +45,19 @@ const interruptRules: ReadonlyArray<InterruptRule> = [
     name: "stale_prs",
     priority: "low",
     condition: (s) => {
-      const state = s as RepoState
+      const state = s as GitHubState
       const cutoff = Date.now() - STALE_PR_DAYS * 24 * 60 * 60 * 1000
-      return state.openPRs.some((pr) => new Date(pr.createdAt).getTime() < cutoff)
+      return state.repos.some((r) =>
+        r.openPRs.some((pr) => new Date(pr.createdAt).getTime() < cutoff),
+      )
     },
     message: (s) => {
-      const state = s as RepoState
+      const state = s as GitHubState
       const cutoff = Date.now() - STALE_PR_DAYS * 24 * 60 * 60 * 1000
-      const count = state.openPRs.filter((pr) => new Date(pr.createdAt).getTime() < cutoff).length
-      return `${count} PRs have had no activity in ${STALE_PR_DAYS}+ days.`
+      const total = state.repos.reduce((sum, r) =>
+        sum + r.openPRs.filter((pr) => new Date(pr.createdAt).getTime() < cutoff).length, 0,
+      )
+      return `${total} PRs across repos have had no activity in ${STALE_PR_DAYS}+ days.`
     },
     suggestedAction: "review_stale_prs",
   },

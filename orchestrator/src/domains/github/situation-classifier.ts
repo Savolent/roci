@@ -1,15 +1,23 @@
 import { Layer } from "effect"
 import type { SituationClassifier } from "../../core/situation.js"
 import { SituationClassifierTag } from "../../core/situation.js"
-import type { RepoState, GitHubSituation, GitHubSituationType } from "./types.js"
+import type { GitHubState, GitHubSituation, GitHubSituationType, RepoState, RepoSituation } from "./types.js"
 
-function classify(state: RepoState): GitHubSituation {
+const STALE_PR_DAYS = 7
+
+/** Priority order for situation types (worst first). */
+const SITUATION_PRIORITY: GitHubSituationType[] = [
+  "ci_failing", "triage_needed", "review_needed", "work_available", "idle",
+]
+
+function classifyRepo(state: RepoState): RepoSituation {
   const ciFailing = state.ciStatus === "failing"
   const untriagedIssues = state.openIssues.some((i) => !i.labels.includes("triaged"))
   const reviewablePRs = state.openPRs.some(
     (pr) => !pr.draft && pr.checks === "passing" && pr.reviewStatus === "review_required",
   )
-  const stalePRs = false // TODO: implement staleness check based on createdAt
+  const cutoff = Date.now() - STALE_PR_DAYS * 24 * 60 * 60 * 1000
+  const stalePRs = state.openPRs.some((pr) => new Date(pr.createdAt).getTime() < cutoff)
 
   const flags = { ciFailing, untriagedIssues, reviewablePRs, stalePRs }
 
@@ -19,26 +27,37 @@ function classify(state: RepoState): GitHubSituation {
   else if (reviewablePRs) type = "review_needed"
   else if (state.openIssues.length > 0) type = "work_available"
 
-  return { type, flags, alerts: [] }
+  return { owner: state.owner, repo: state.repo, type, flags }
 }
 
-function briefing(state: RepoState, situation: GitHubSituation): string {
-  const parts = [
-    `${state.owner}/${state.repo}`,
-    `${state.openIssues.length} open issues`,
-    `${state.openPRs.length} open PRs`,
-    `CI: ${state.ciStatus}`,
-    `Situation: ${situation.type}`,
-  ]
-  return parts.join(" | ")
+function classify(state: GitHubState): GitHubSituation {
+  const repos = state.repos.map(classifyRepo)
+
+  // Overall situation = worst across all repos
+  const worstType = repos.reduce<GitHubSituationType>((worst, r) => {
+    return SITUATION_PRIORITY.indexOf(r.type) < SITUATION_PRIORITY.indexOf(worst)
+      ? r.type
+      : worst
+  }, "idle")
+
+  return { type: worstType, repos, alerts: [] }
+}
+
+function briefing(state: GitHubState, situation: GitHubSituation): string {
+  const lines = state.repos.map((repo, i) => {
+    const sit = situation.repos[i]
+    const branch = repo.currentBranch ?? "?"
+    return `${repo.owner}/${repo.repo}: ${repo.openIssues.length} issues, ${repo.openPRs.length} PRs, CI:${repo.ciStatus}, branch:${branch} → ${sit?.type ?? "?"}`
+  })
+  return lines.join("\n")
 }
 
 const gitHubSituationClassifier: SituationClassifier = {
   classify(state) {
-    return classify(state as RepoState)
+    return classify(state as GitHubState)
   },
   briefing(state, situation) {
-    return briefing(state as RepoState, situation as GitHubSituation)
+    return briefing(state as GitHubState, situation as GitHubSituation)
   },
 }
 

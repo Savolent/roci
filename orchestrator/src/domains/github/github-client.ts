@@ -1,9 +1,8 @@
 import { Context, Effect, Queue, Schedule, Layer, Scope } from "effect"
-import type { RepoState, GitHubEvent, Issue, PullRequest } from "./types.js"
+import type { GitHubState, GitHubEvent, RepoState, Issue, PullRequest } from "./types.js"
 
 export interface GitHubClientConfig {
-  readonly owner: string
-  readonly repo: string
+  readonly repos: Array<{ owner: string; repo: string }>
   readonly pollIntervalMs: number
   readonly token: string
 }
@@ -12,7 +11,7 @@ export interface GitHubClient {
   /** Start polling and return the event queue + initial state. */
   readonly connect: (config: GitHubClientConfig) => Effect.Effect<{
     events: Queue.Queue<GitHubEvent>
-    initialState: RepoState
+    initialState: GitHubState
     tickIntervalSec: number
     initialTick: number
   }, never, Scope.Scope>
@@ -20,31 +19,43 @@ export interface GitHubClient {
 
 export class GitHubClientTag extends Context.Tag("GitHubClient")<GitHubClientTag, GitHubClient>() {}
 
-/** Standard GitHub API headers. */
+/** Standard GitHub API headers. Works with both classic PATs (ghp_) and fine-grained tokens. */
 function apiHeaders(token: string): Record<string, string> {
   return {
-    Authorization: `Bearer ${token}`,
+    Authorization: `token ${token}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   }
 }
 
-/** Fetch JSON from a URL with error handling. */
+/** Fetch JSON from a URL with error handling — includes response body in errors. */
 const fetchJson = (url: string, headers: Record<string, string>) =>
   Effect.tryPromise({
-    try: () =>
-      fetch(url, { headers }).then((r) => {
-        if (!r.ok) throw new Error(`GitHub API ${r.status}: ${r.statusText}`)
-        return r.json()
-      }),
+    try: async () => {
+      const r = await fetch(url, { headers })
+      if (!r.ok) {
+        const body = await r.text().catch(() => "(no body)")
+        throw new Error(`GitHub API ${r.status}: ${r.statusText} — ${body}`)
+      }
+      return r.json()
+    },
     catch: (e) => new Error(`GitHub API failed: ${e}`),
   })
 
+/** Validate that a token looks plausible before making API calls. */
+function validateToken(token: string): Effect.Effect<void, Error> {
+  if (!token || token === "ghp_placeholder") {
+    return Effect.fail(new Error(
+      "GitHub token is missing or placeholder. Set a real token in github.json"
+    ))
+  }
+  return Effect.void
+}
+
 /**
- * Fetch current repo state from GitHub REST API.
- * Makes three parallel calls: issues, PRs, and CI runs.
+ * Fetch current state for a single repo from the GitHub REST API.
  */
-const fetchRepoState = (owner: string, repo: string, token: string, tick: number) =>
+const fetchRepoState = (owner: string, repo: string, token: string) =>
   Effect.gen(function* () {
     const headers = apiHeaders(token)
     const base = `https://api.github.com/repos/${owner}/${repo}`
@@ -91,7 +102,6 @@ const fetchRepoState = (owner: string, repo: string, token: string, tick: number
       const latest = runs[0]
       if (latest.conclusion === "success") ciStatus = "passing"
       else if (latest.conclusion === "failure") ciStatus = "failing"
-      // null conclusion means still running — keep "unknown"
     }
 
     const state: RepoState = {
@@ -101,50 +111,73 @@ const fetchRepoState = (owner: string, repo: string, token: string, tick: number
       openPRs,
       ciStatus,
       recentActivity: [],
-      tick,
-      timestamp: Date.now(),
+      clonePath: null,
+      currentBranch: null,
     }
 
     return state
   })
 
 /**
- * GitHub client that polls the REST API for repo state.
- * Uses native fetch (Node 18+) — no gh CLI dependency on host.
+ * GitHub client that polls the REST API for repo state across multiple repos.
  */
 export const GitHubClientLive = Layer.succeed(GitHubClientTag, {
   connect: (config: GitHubClientConfig) =>
     Effect.gen(function* () {
       const events = yield* Queue.unbounded<GitHubEvent>()
-      const { owner, repo, token } = config
+      const { repos, token } = config
 
-      // Initial fetch to get real state
-      const initialState = yield* fetchRepoState(owner, repo, token, 0).pipe(
-        Effect.catchAll((_e) => {
-          // Fall back to empty state on initial fetch failure
-          return Effect.succeed<RepoState>({
-            owner, repo,
-            openIssues: [], openPRs: [],
-            ciStatus: "unknown",
-            recentActivity: [],
-            tick: 0,
-            timestamp: Date.now(),
-          })
-        }),
+      // Validate token before attempting any API calls
+      yield* validateToken(token).pipe(
+        Effect.catchAll((e) => Effect.logWarning(`Token validation: ${e.message}`)),
       )
 
-      // Background polling fiber
+      // Initial fetch for all repos
+      const initialRepos = yield* Effect.all(
+        repos.map(({ owner, repo }) =>
+          fetchRepoState(owner, repo, token).pipe(
+            Effect.catchAll((e) => {
+              return Effect.logWarning(`Initial fetch failed for ${owner}/${repo}: ${e.message}`).pipe(
+                Effect.map(() => ({
+                  owner, repo,
+                  openIssues: [], openPRs: [],
+                  ciStatus: "unknown" as const,
+                  recentActivity: [],
+                  clonePath: null,
+                  currentBranch: null,
+                })),
+              )
+            }),
+          ),
+        ),
+        { concurrency: 3 },
+      )
+
+      const initialState: GitHubState = {
+        repos: initialRepos,
+        tick: 0,
+        timestamp: Date.now(),
+      }
+
+      // Background polling fiber — polls all repos each cycle
       let tick = 0
       yield* Effect.gen(function* () {
         tick++
-        const state = yield* fetchRepoState(owner, repo, token, tick)
-        yield* Queue.offer(events, { type: "poll_update", payload: state })
+        const repoStates = yield* Effect.all(
+          repos.map(({ owner, repo }) => fetchRepoState(owner, repo, token)),
+          { concurrency: 3 },
+        )
+        for (let i = 0; i < repoStates.length; i++) {
+          yield* Queue.offer(events, {
+            type: "poll_update",
+            payload: { repoIndex: i, repoState: repoStates[i] },
+          })
+        }
         yield* Queue.offer(events, { type: "tick", payload: { tick } })
       }).pipe(
         Effect.repeat(Schedule.spaced(config.pollIntervalMs)),
         Effect.catchAll((e) => {
-          // Log but don't crash the polling fiber
-          return Effect.logWarning(`GitHub poll error: ${e}`)
+          return Effect.logWarning(`GitHub poll error: ${e.message}`)
         }),
         Effect.forkScoped,
       )

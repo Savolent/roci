@@ -1,36 +1,45 @@
 import { Layer } from "effect"
 import type { StateRenderer } from "../../core/state-renderer.js"
 import { StateRendererTag } from "../../core/state-renderer.js"
-import type { RepoState, GitHubSituation } from "./types.js"
+import type { GitHubState, GitHubSituation } from "./types.js"
 
-function snapshot(state: RepoState): Record<string, unknown> {
+function snapshot(state: GitHubState): Record<string, unknown> {
   return {
-    repo: `${state.owner}/${state.repo}`,
-    openIssues: state.openIssues.length,
-    openPRs: state.openPRs.length,
-    ciStatus: state.ciStatus,
+    repos: state.repos.map((r) => ({
+      repo: `${r.owner}/${r.repo}`,
+      openIssues: r.openIssues.length,
+      openPRs: r.openPRs.length,
+      ciStatus: r.ciStatus,
+    })),
     tick: state.tick,
   }
 }
 
-function richSnapshot(state: RepoState): Record<string, unknown> {
+function richSnapshot(state: GitHubState): Record<string, unknown> {
   return {
     ...snapshot(state),
-    issues: state.openIssues.map((i) => ({
-      number: i.number,
-      title: i.title,
-      labels: i.labels,
-      author: i.author,
+    repos: state.repos.map((r) => ({
+      repo: `${r.owner}/${r.repo}`,
+      openIssues: r.openIssues.length,
+      openPRs: r.openPRs.length,
+      ciStatus: r.ciStatus,
+      clonePath: r.clonePath,
+      currentBranch: r.currentBranch,
+      issues: r.openIssues.map((i) => ({
+        number: i.number,
+        title: i.title,
+        labels: i.labels,
+        author: i.author,
+      })),
+      prs: r.openPRs.map((pr) => ({
+        number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        draft: pr.draft,
+        checks: pr.checks,
+        reviewStatus: pr.reviewStatus,
+      })),
     })),
-    prs: state.openPRs.map((pr) => ({
-      number: pr.number,
-      title: pr.title,
-      author: pr.author,
-      draft: pr.draft,
-      checks: pr.checks,
-      reviewStatus: pr.reviewStatus,
-    })),
-    recentActivity: state.recentActivity,
   }
 }
 
@@ -39,64 +48,88 @@ function stateDiff(
   after: Record<string, unknown>,
 ): string {
   if (!before) return "(no before-state captured)"
+  // Compare repo-level counts
+  const beforeRepos = (before.repos ?? []) as Array<Record<string, unknown>>
+  const afterRepos = (after.repos ?? []) as Array<Record<string, unknown>>
   const changes: string[] = []
-  if (before.openIssues !== after.openIssues)
-    changes.push(`Issues: ${before.openIssues} -> ${after.openIssues}`)
-  if (before.openPRs !== after.openPRs)
-    changes.push(`PRs: ${before.openPRs} -> ${after.openPRs}`)
-  if (before.ciStatus !== after.ciStatus)
-    changes.push(`CI: ${before.ciStatus} -> ${after.ciStatus}`)
+  for (let i = 0; i < afterRepos.length; i++) {
+    const b = beforeRepos[i]
+    const a = afterRepos[i]
+    if (!b || !a) continue
+    const repo = a.repo as string
+    if (b.openIssues !== a.openIssues)
+      changes.push(`${repo} issues: ${b.openIssues} -> ${a.openIssues}`)
+    if (b.openPRs !== a.openPRs)
+      changes.push(`${repo} PRs: ${b.openPRs} -> ${a.openPRs}`)
+    if (b.ciStatus !== a.ciStatus)
+      changes.push(`${repo} CI: ${b.ciStatus} -> ${a.ciStatus}`)
+  }
   return changes.length > 0 ? changes.join("; ") : "(no changes detected)"
 }
 
-function renderForPlanning(state: RepoState, situation: GitHubSituation): string {
-  const lines: string[] = [
-    `## ${state.owner}/${state.repo}`,
-    `CI: ${state.ciStatus} | Situation: ${situation.type}`,
-    "",
-  ]
+function renderForPlanning(state: GitHubState, situation: GitHubSituation): string {
+  const sections: string[] = []
 
-  if (state.openIssues.length > 0) {
-    lines.push("### Open Issues")
-    for (const issue of state.openIssues) {
-      const labels = issue.labels.length > 0 ? ` [${issue.labels.join(", ")}]` : ""
-      lines.push(`- #${issue.number}: ${issue.title}${labels} (by ${issue.author})`)
+  for (let i = 0; i < state.repos.length; i++) {
+    const repo = state.repos[i]
+    const sit = situation.repos[i]
+    const lines: string[] = [
+      `## ${repo.owner}/${repo.repo}`,
+      `CI: ${repo.ciStatus} | Situation: ${sit?.type ?? "unknown"}`,
+    ]
+
+    if (repo.clonePath) {
+      lines.push(`Local clone: \`${repo.clonePath}\` (branch: ${repo.currentBranch ?? "unknown"})`)
     }
     lines.push("")
-  }
 
-  if (state.openPRs.length > 0) {
-    lines.push("### Open PRs")
-    for (const pr of state.openPRs) {
-      const status = pr.draft ? "draft" : `checks:${pr.checks} review:${pr.reviewStatus}`
-      lines.push(`- #${pr.number}: ${pr.title} (${status}, by ${pr.author})`)
+    if (repo.openIssues.length > 0) {
+      lines.push("### Open Issues")
+      for (const issue of repo.openIssues) {
+        const labels = issue.labels.length > 0 ? ` [${issue.labels.join(", ")}]` : ""
+        lines.push(`- #${issue.number}: ${issue.title}${labels} (by ${issue.author})`)
+      }
+      lines.push("")
     }
-    lines.push("")
+
+    if (repo.openPRs.length > 0) {
+      lines.push("### Open PRs")
+      for (const pr of repo.openPRs) {
+        const status = pr.draft ? "draft" : `checks:${pr.checks} review:${pr.reviewStatus}`
+        lines.push(`- #${pr.number}: ${pr.title} (${status}, by ${pr.author})`)
+      }
+      lines.push("")
+    }
+
+    sections.push(lines.join("\n"))
   }
 
-  return lines.join("\n")
+  return sections.join("\n---\n\n")
 }
 
-function logStateBar(name: string, state: RepoState, situation: GitHubSituation): void {
-  const line = `[${name}] ${state.owner}/${state.repo} | issues:${state.openIssues.length} prs:${state.openPRs.length} ci:${state.ciStatus} | ${situation.type}`
+function logStateBar(name: string, state: GitHubState, situation: GitHubSituation): void {
+  const repoSummaries = state.repos.map((r) =>
+    `${r.owner}/${r.repo}:i${r.openIssues.length}/p${r.openPRs.length}/${r.ciStatus}`,
+  )
+  const line = `[${name}] ${repoSummaries.join(" ")} | ${situation.type}`
   process.stderr.write(`\r${line}`)
 }
 
 const gitHubStateRenderer: StateRenderer = {
   snapshot(state) {
-    return snapshot(state as RepoState)
+    return snapshot(state as GitHubState)
   },
   richSnapshot(state) {
-    return richSnapshot(state as RepoState)
+    return richSnapshot(state as GitHubState)
   },
   stateDiff(before, after) {
     return stateDiff(before, after)
   },
   renderForPlanning(state, situation) {
-    return renderForPlanning(state as RepoState, situation as GitHubSituation)
+    return renderForPlanning(state as GitHubState, situation as GitHubSituation)
   },
   logStateBar(name, state, situation) {
-    logStateBar(name, state as RepoState, situation as GitHubSituation)
+    logStateBar(name, state as GitHubState, situation as GitHubSituation)
   },
 }
 

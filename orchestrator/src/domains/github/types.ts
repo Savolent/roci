@@ -21,6 +21,10 @@ export interface PullRequest {
   createdAt: string
 }
 
+// =====================================================
+// Per-Repo State (from GitHub API)
+// =====================================================
+
 export interface RepoState {
   owner: string
   repo: string
@@ -28,8 +32,29 @@ export interface RepoState {
   openPRs: PullRequest[]
   ciStatus: "passing" | "failing" | "unknown"
   recentActivity: string[]
+  /** Path to the local clone inside the container, or null if not yet cloned. */
+  clonePath: string | null
+  /** Current branch in the local clone. */
+  currentBranch: string | null
+}
+
+// =====================================================
+// Aggregate State (what the brain sees)
+// =====================================================
+
+export interface GitHubState {
+  repos: RepoState[]
   tick: number
   timestamp: number
+}
+
+// =====================================================
+// Character Config
+// =====================================================
+
+export interface GitHubCharacterConfig {
+  token: string
+  repos: string[]  // "owner/repo" format
 }
 
 // =====================================================
@@ -50,9 +75,17 @@ export interface GitHubSituationFlags {
   stalePRs: boolean
 }
 
-export interface GitHubSituation {
+/** Per-repo situation summary, rolled up for the brain. */
+export interface RepoSituation {
+  owner: string
+  repo: string
   type: GitHubSituationType
   flags: GitHubSituationFlags
+}
+
+export interface GitHubSituation {
+  type: GitHubSituationType  // worst across all repos
+  repos: RepoSituation[]
   alerts: Array<{ priority: "critical" | "high" | "medium" | "low"; message: string; suggestedAction?: string }>
 }
 
@@ -61,5 +94,5 @@ export interface GitHubSituation {
 // =====================================================
 
 export type GitHubEvent =
-  | { type: "poll_update"; payload: RepoState }
+  | { type: "poll_update"; payload: { repoIndex: number; repoState: RepoState } }
   | { type: "tick"; payload: { tick: number } }
