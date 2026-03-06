@@ -1,3 +1,4 @@
+import * as readline from "node:readline"
 import { Effect, Ref, Fiber, Queue, Deferred } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterFs } from "../services/CharacterFs.js"
@@ -33,6 +34,8 @@ export interface StateMachineConfig {
   initialTick: number
   exitSignal?: Deferred.Deferred<ExitReason, never>
   hooks?: LifecycleHooks
+  /** Pause for manual approval before plan/subagent steps. */
+  manualApproval?: boolean
 }
 
 /**
@@ -113,6 +116,50 @@ export const runStateMachine = (config: StateMachineConfig) =>
     }
     const spawnServices = { renderer, hooks }
 
+    // --- Manual approval gate ---
+
+    /** Ring terminal bell and wait for Enter if manual approval is enabled. */
+    const awaitApproval = (label: string) => {
+      if (!config.manualApproval) return Effect.void
+      return Effect.async<void, never>((resume) => {
+        // Bell character + visible prompt
+        process.stderr.write(`\x07\n[${config.char.name}] ⏸ ${label} — press Enter to continue...`)
+        const rl = readline.createInterface({ input: process.stdin })
+        rl.once("line", () => {
+          rl.close()
+          resume(Effect.void)
+        })
+      })
+    }
+
+    /** Plan + spawn cycle with manual approval gates. */
+    const planAndSpawn = (state: DomainState, situation: DomainSituation, briefing: string) =>
+      Effect.gen(function* () {
+        // Check if planning will happen (same condition as maybeRequestPlan)
+        const plan = yield* Ref.get(planRef)
+        const step = yield* Ref.get(stepRef)
+        const noFiber = (yield* Ref.get(subagentFiberRef)) === null
+        const needsPlan = noFiber && (!plan || step >= (plan?.steps.length ?? 0))
+
+        if (needsPlan) {
+          const mode = yield* Ref.get(modeRef)
+          yield* awaitApproval(`requesting plan (mode: ${mode})`)
+        }
+
+        yield* maybeRequestPlan(planningRefs, planningServices, state, situation, briefing)
+
+        // Check if spawning will happen (same condition as maybeSpawnSubagent)
+        const planAfter = yield* Ref.get(planRef)
+        const stepAfter = yield* Ref.get(stepRef)
+        const noFiberAfter = (yield* Ref.get(subagentFiberRef)) === null
+        if (noFiberAfter && planAfter && stepAfter < planAfter.steps.length) {
+          const nextStep = planAfter.steps[stepAfter]
+          yield* awaitApproval(`spawning subagent: [${nextStep.task}] ${nextStep.goal}`)
+        }
+
+        yield* maybeSpawnSubagent(subagentRefs, planRefs, timingRefs, spawnConfig, spawnServices, state, situation)
+      })
+
     // --- Inline helpers ---
 
     /** Check if a procedure plan just completed; if so, spawn diary and reset mode to 'select'. */
@@ -126,6 +173,7 @@ export const runStateMachine = (config: StateMachineConfig) =>
         if (!plan || step < plan.steps.length) return
 
         // Plan completed in a procedure mode — spawn diary subagent
+        yield* awaitApproval(`procedure '${mode}' complete, spawning diary subagent`)
         yield* logToConsole(config.char.name, "monitor", `Procedure '${mode}' complete, writing diary...`)
 
         const diaryPrompt = `Update ./me/DIARY.md reflecting on what you accomplished, what you learned, and what to focus on next.
@@ -264,8 +312,7 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
         }
 
         // Plan + spawn cycle
-        yield* maybeRequestPlan(planningRefs, planningServices, state, situation, briefing)
-        yield* maybeSpawnSubagent(subagentRefs, planRefs, timingRefs, spawnConfig, spawnServices, state, situation)
+        yield* planAndSpawn(state, situation, briefing)
       })
 
     /** Process a tick: heartbeat, timeout checks, and proactive plan/spawn. */
@@ -290,8 +337,7 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
           }
         }
 
-        yield* maybeRequestPlan(planningRefs, planningServices, state, situation, briefing)
-        yield* maybeSpawnSubagent(subagentRefs, planRefs, timingRefs, spawnConfig, spawnServices, state, situation)
+        yield* planAndSpawn(state, situation, briefing)
       })
 
     /** Process a reset event (e.g. death): kill everything, start fresh. */
@@ -317,8 +363,7 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
       const state = yield* Ref.get(gameStateRef)
       const situation = classifier.classify(state)
       const briefing = classifier.briefing(state, situation)
-      yield* maybeRequestPlan(planningRefs, planningServices, state, situation, briefing)
-      yield* maybeSpawnSubagent(subagentRefs, planRefs, timingRefs, spawnConfig, spawnServices, state, situation)
+      yield* planAndSpawn(state, situation, briefing)
     }).pipe(
       Effect.catchAllCause((cause) => {
         const msg = cause.toString().slice(0, 500)

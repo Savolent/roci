@@ -99,6 +99,8 @@ const activePhase = {
         return { _tag: "Shutdown" } as PhaseResult
       }
 
+      const manualApproval = context.phaseData?.manualApproval as boolean | undefined
+
       yield* eventLoop({
         char: context.char,
         containerId: context.containerId,
@@ -111,6 +113,7 @@ const activePhase = {
         exitSignal,
         hooks,
         domainBundle: context.domainBundle,
+        manualApproval,
       })
 
       // When the state machine exits, transition to social phase

@@ -37,11 +37,13 @@ export const runPhases = <S, Evt, R>(
             "orchestrator",
             `Phase "${phase.name}" complete → next: "${result.next}"`,
           )
-          // Thread connection and data forward
+          // Thread connection and data forward (merge phaseData, don't replace)
           context = {
             ...context,
             connection: result.connection ?? context.connection,
-            phaseData: result.data ?? context.phaseData,
+            phaseData: result.data
+              ? { ...context.phaseData, ...result.data }
+              : context.phaseData,
           }
           currentPhaseName = result.next
           break

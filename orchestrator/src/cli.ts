@@ -2,6 +2,7 @@ import { Args, Command, Options } from "@effect/cli"
 import { Effect, Layer } from "effect"
 import { FileSystem } from "@effect/platform"
 import * as path from "node:path"
+import { execSync } from "node:child_process"
 import WebSocket from "ws"
 import { Docker, DockerLive } from "./services/Docker.js"
 import { CharacterFs, CharacterFsLive, makeCharacterConfig } from "./services/CharacterFs.js"
@@ -11,7 +12,8 @@ import { CharacterLogLive } from "./logging/log-writer.js"
 import { ProjectRoot } from "./services/ProjectRoot.js"
 import { runOrchestrator } from "./pipeline/orchestrator.js"
 import { logToConsole } from "./logging/console-renderer.js"
-import { resolveConfigs } from "./domains/registry.js"
+import { DOMAIN_REGISTRY, loadProjectConfig, resolveConfigs } from "./domains/registry.js"
+import type { ProcedureMessage } from "./core/domain-bundle.js"
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "../..")
 
@@ -26,10 +28,15 @@ const domainOption = Options.text("domain").pipe(
   Options.withDescription("Domain(s) to run (e.g. spacemolt, github). If omitted, runs all from config.json."),
 )
 
+const manualApproval = Options.boolean("manual-approval").pipe(
+  Options.withDefault(false),
+  Options.withDescription("Pause for manual approval before each plan/subagent step (rings terminal bell)"),
+)
+
 // --- start command ---
 const startCharacters = Args.text({ name: "characters" }).pipe(Args.repeated)
 
-const startCommand = Command.make("start", { characters: startCharacters, tickInterval, domain: domainOption }, (args) =>
+const startCommand = Command.make("start", { characters: startCharacters, tickInterval, domain: domainOption, manualApproval }, (args) =>
   Effect.gen(function* () {
     const domains = [...args.domain]
     const characters = [...args.characters]
@@ -54,7 +61,7 @@ const startCommand = Command.make("start", { characters: startCharacters, tickIn
       }
     }
 
-    yield* runOrchestrator(resolved, args.tickInterval)
+    yield* runOrchestrator(resolved, args.tickInterval, args.manualApproval)
   }),
 ).pipe(Command.withDescription("Start character(s) running"))
 
@@ -303,117 +310,120 @@ const wsTestCommand = Command.make("ws-test", { character: wsTestCharacter }, (a
 
 // --- init command ---
 const initDomain = Options.text("domain").pipe(
-  Options.withDescription("Domain to initialize (e.g. github)"),
+  Options.withDescription("Domain to initialize (e.g. github, spacemolt)"),
 )
+
+/** Log a ProcedureMessage to console with appropriate prefix. */
+const logProcMsg = (msg: ProcedureMessage) => {
+  const prefix = msg.level === "ok" ? "OK" : msg.level === "warning" ? "WARNING" : "ERROR"
+  return logToConsole("init", "cli", `${prefix}: ${msg.text}`)
+}
 
 const initCommand = Command.make("init", { domain: initDomain }, (args) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
+    const domainName = args.domain
 
-    if (args.domain === "github") {
-      // Ensure repos/ directory exists on host
-      const reposDir = path.resolve(PROJECT_ROOT, "repos")
-      const reposDirExists = yield* fs.exists(reposDir)
-      if (!reposDirExists) {
-        yield* fs.makeDirectory(reposDir, { recursive: true })
-        yield* logToConsole("init", "cli", `Created ${reposDir}`)
-      } else {
-        yield* logToConsole("init", "cli", `${reposDir} already exists`)
-      }
+    // 1. Look up domain in registry
+    const factory = DOMAIN_REGISTRY[domainName]
+    if (!factory) {
+      yield* logToConsole("init", "cli", `Unknown domain: ${domainName}. Known domains: ${Object.keys(DOMAIN_REGISTRY).join(", ")}`)
+      return
+    }
+    const domainConfig = factory(PROJECT_ROOT)
 
-      // Check config.json has a github entry
-      const configPath = path.resolve(PROJECT_ROOT, "config.json")
-      const configExists = yield* fs.exists(configPath)
-      if (!configExists) {
-        yield* logToConsole("init", "cli", `No config.json found — creating with empty github domain`)
-        yield* fs.writeFileString(configPath, JSON.stringify({ github: { characters: [] } }, null, 2) + "\n")
-      } else {
-        const raw = yield* fs.readFileString(configPath)
-        const config = JSON.parse(raw)
-        if (!config.github) {
-          yield* logToConsole("init", "cli", `Adding github domain to config.json`)
-          config.github = { characters: [] }
-          yield* fs.writeFileString(configPath, JSON.stringify(config, null, 2) + "\n")
-        } else {
-          yield* logToConsole("init", "cli", `config.json already has github domain`)
-        }
-      }
+    // 2. Docker check (generic — all domains use containers)
+    try {
+      const dockerVersion = execSync("docker --version", { encoding: "utf-8" }).trim()
+      yield* logToConsole("init", "cli", `Docker available: ${dockerVersion}`)
+    } catch {
+      yield* logToConsole("init", "cli", `WARNING: Docker not available — needed for 'start' command`)
+    }
 
-      // Validate each github character has github.json
-      const configRaw = yield* fs.readFileString(configPath)
-      const config = JSON.parse(configRaw)
-      const characters = config.github?.characters ?? []
-
-      if (characters.length === 0) {
-        yield* logToConsole("init", "cli", `No characters configured in config.json github domain.`)
-        yield* logToConsole("init", "cli", `Add characters to config.json, create player directories, then run init again.`)
-        yield* logToConsole("init", "cli", ``)
-        yield* logToConsole("init", "cli", `Each character needs:`)
-        yield* logToConsole("init", "cli", `  players/<name>/me/github.json  — { "token": "ghp_...", "repos": ["owner/repo"] }`)
-        yield* logToConsole("init", "cli", `  players/<name>/me/background.md — personality and identity`)
-        yield* logToConsole("init", "cli", `  players/<name>/me/VALUES.md     — working values`)
-        yield* logToConsole("init", "cli", `  players/<name>/me/DIARY.md      — empty diary template`)
-        yield* logToConsole("init", "cli", `  players/<name>/me/SECRETS.md    — empty`)
-        return
-      }
-
-      let allGood = true
-      for (const charName of characters) {
-        const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
-        const charDirExists = yield* fs.exists(charDir)
-        if (!charDirExists) {
-          yield* logToConsole("init", "cli", `MISSING: ${charDir} — create this directory with character files`)
-          allGood = false
-          continue
-        }
-
-        const ghJsonPath = path.resolve(charDir, "github.json")
-        const ghJsonExists = yield* fs.exists(ghJsonPath)
-        if (!ghJsonExists) {
-          yield* logToConsole("init", "cli", `MISSING: ${ghJsonPath}`)
-          allGood = false
-          continue
-        }
-
-        // Validate github.json contents
-        const ghJsonRaw = yield* fs.readFileString(ghJsonPath)
-        try {
-          const ghConfig = JSON.parse(ghJsonRaw)
-          if (!ghConfig.token || ghConfig.token === "ghp_placeholder") {
-            yield* logToConsole("init", "cli", `WARNING: ${charName} — github.json has placeholder token`)
-            allGood = false
-          }
-          if (!ghConfig.repos || ghConfig.repos.length === 0) {
-            yield* logToConsole("init", "cli", `WARNING: ${charName} — github.json has no repos`)
-            allGood = false
-          } else {
-            yield* logToConsole("init", "cli", `OK: ${charName} — ${ghConfig.repos.length} repo(s): ${ghConfig.repos.join(", ")}`)
-          }
-        } catch {
-          yield* logToConsole("init", "cli", `ERROR: ${charName} — github.json is not valid JSON`)
-          allGood = false
-        }
-
-        // Check for required character files
-        for (const file of ["background.md", "VALUES.md", "DIARY.md"]) {
-          const filePath = path.resolve(charDir, file)
-          const fileExists = yield* fs.exists(filePath)
-          if (!fileExists) {
-            yield* logToConsole("init", "cli", `MISSING: ${charName}/${file}`)
-            allGood = false
-          }
-        }
-      }
-
-      if (allGood) {
-        yield* logToConsole("init", "cli", ``)
-        yield* logToConsole("init", "cli", `GitHub domain is ready. Run: npx tsx src/cli.ts start --domain github`)
-      } else {
-        yield* logToConsole("init", "cli", ``)
-        yield* logToConsole("init", "cli", `Fix the issues above before starting.`)
-      }
+    // 3. Ensure config.json has an entry for this domain
+    const configPath = path.resolve(PROJECT_ROOT, "config.json")
+    const configExists = yield* fs.exists(configPath)
+    if (!configExists) {
+      yield* logToConsole("init", "cli", `No config.json found — creating with empty ${domainName} domain`)
+      yield* fs.writeFileString(configPath, JSON.stringify({ [domainName]: { characters: [] } }, null, 2) + "\n")
     } else {
-      yield* logToConsole("init", "cli", `Unknown domain: ${args.domain}. Supported: github`)
+      const raw = yield* fs.readFileString(configPath)
+      const config = JSON.parse(raw)
+      if (!config[domainName]) {
+        yield* logToConsole("init", "cli", `Adding ${domainName} domain to config.json`)
+        config[domainName] = { characters: [] }
+        yield* fs.writeFileString(configPath, JSON.stringify(config, null, 2) + "\n")
+      } else {
+        yield* logToConsole("init", "cli", `config.json already has ${domainName} domain`)
+      }
+    }
+
+    // 4. Run domain's project-level init if present
+    if (domainConfig.initProject) {
+      const msgs = yield* domainConfig.initProject(PROJECT_ROOT)
+      for (const msg of msgs) yield* logProcMsg(msg)
+    }
+
+    // 5. Read character list
+    const projectConfig = loadProjectConfig(PROJECT_ROOT)
+    const characters: string[] = projectConfig[domainName]?.characters ?? []
+
+    if (characters.length === 0) {
+      yield* logToConsole("init", "cli", `No characters configured in config.json ${domainName} domain.`)
+      yield* logToConsole("init", "cli", `Add characters to config.json, create player directories, then run init again.`)
+      yield* logToConsole("init", "cli", ``)
+      const guide = domainConfig.characterSetupGuide ?? [
+        `Each character needs:`,
+        `  players/<name>/me/background.md — personality and identity`,
+        `  players/<name>/me/VALUES.md     — working values`,
+        `  players/<name>/me/DIARY.md      — empty diary template`,
+      ]
+      for (const line of guide) yield* logToConsole("init", "cli", line)
+      return
+    }
+
+    // 6. Validate each character
+    let allGood = true
+    for (const charName of characters) {
+      const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
+      const charDirExists = yield* fs.exists(charDir)
+      if (!charDirExists) {
+        yield* logToConsole("init", "cli", `MISSING: ${charDir} — create this directory with character files`)
+        allGood = false
+        continue
+      }
+
+      // Common files check (orchestrator concern)
+      for (const file of ["background.md", "VALUES.md", "DIARY.md"]) {
+        const filePath = path.resolve(charDir, file)
+        const fileExists = yield* fs.exists(filePath)
+        if (!fileExists) {
+          yield* logToConsole("init", "cli", `MISSING: ${charName}/${file}`)
+          allGood = false
+        }
+      }
+
+      // Domain-specific init procedure
+      if (domainConfig.initProcedure) {
+        const msgs = yield* domainConfig.initProcedure.run({
+          projectRoot: PROJECT_ROOT,
+          characterName: charName,
+          characterDir: charDir,
+        })
+        for (const msg of msgs) {
+          if (msg.level !== "ok") allGood = false
+          yield* logProcMsg(msg)
+        }
+      }
+    }
+
+    // 7. Report overall status
+    if (allGood) {
+      yield* logToConsole("init", "cli", ``)
+      yield* logToConsole("init", "cli", `${domainName} domain is ready. Run: npx tsx src/main.ts start --domain ${domainName}`)
+    } else {
+      yield* logToConsole("init", "cli", ``)
+      yield* logToConsole("init", "cli", `Fix the issues above before starting.`)
     }
   }),
 ).pipe(Command.withDescription("Initialize a domain — validate config, create directories"))

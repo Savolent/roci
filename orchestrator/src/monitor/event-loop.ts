@@ -20,6 +20,8 @@ export interface EventLoopConfig {
   hooks?: LifecycleHooks
   /** Domain service layers for the state machine. */
   domainBundle: DomainBundle
+  /** Pause for manual approval before plan/subagent steps. */
+  manualApproval?: boolean
 }
 
 /**
@@ -38,6 +40,7 @@ export const eventLoop = (config: EventLoopConfig) =>
     initialTick: config.initialTick,
     exitSignal: config.exitSignal,
     hooks: config.hooks,
+    manualApproval: config.manualApproval,
   }).pipe(
     Effect.provide(config.domainBundle),
   )

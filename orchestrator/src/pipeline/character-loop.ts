@@ -17,6 +17,8 @@ export interface CharacterLoopConfig {
   phaseRegistry: PhaseRegistry
   /** Domain service layers for the state machine. */
   domainBundle: DomainBundle
+  /** Pause for manual approval before plan/subagent steps. */
+  manualApproval?: boolean
 }
 
 /**
@@ -35,6 +37,7 @@ export const characterLoop = (config: CharacterLoopConfig & { containerId: strin
           containerId: config.containerId,
           containerEnv: config.containerEnv,
           domainBundle: config.domainBundle,
+          phaseData: config.manualApproval ? { manualApproval: true } : undefined,
         },
         config.phaseRegistry,
       )
