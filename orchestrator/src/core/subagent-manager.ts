@@ -12,7 +12,7 @@ import type { SkillRegistry } from "./skill.js"
 import type { SituationClassifier } from "./situation.js"
 import type { StateRenderer } from "./state-renderer.js"
 import type { DomainState, DomainSituation } from "./domain-types.js"
-import type { Plan, StepCompletionResult } from "./types.js"
+import type { BrainMode, Plan, StepCompletionResult } from "./types.js"
 import type { LifecycleHooks } from "./lifecycle.js"
 import type { TimingRefs } from "./step-tracker.js"
 import { recordStepTiming, recordStepOutcome } from "./step-tracker.js"
@@ -49,6 +49,8 @@ interface EvaluateServices {
   readonly hooks?: LifecycleHooks
   readonly tickIntervalSec: number
   readonly char: CharacterConfig
+  readonly modeRef?: Ref.Ref<BrainMode>
+  readonly investigationReportRef?: Ref.Ref<string | null>
 }
 
 /** Check if a completed subagent's step succeeded. Advance or replan. */
@@ -102,12 +104,22 @@ export const evaluateCompletedSubagent = (
           yield* services.hooks.afterStep(step, conditionCheck)
         }
 
+        // Capture investigation report before clearing
+        if (services.investigationReportRef && currentStep.task === "investigate") {
+          const currentMode = services.modeRef ? yield* Ref.get(services.modeRef) : "select"
+          if (currentMode === "select") {
+            yield* Ref.set(services.investigationReportRef, report)
+          }
+        }
+
         yield* Ref.set(planRefs.step, step + 1)
         yield* Ref.set(subagentRefs.fiber, null)
         yield* Ref.set(subagentRefs.report, "")
         yield* Ref.set(subagentRefs.spawnState, null)
         return
       }
+
+      const mode = services.modeRef ? yield* Ref.get(services.modeRef) : ("select" as BrainMode)
 
       const result: StepCompletionResult = yield* brainEvaluate.execute({
         step: currentStep,
@@ -119,6 +131,7 @@ export const evaluateCompletedSubagent = (
         ticksConsumed: timing.ticksConsumed,
         ticksBudgeted: timing.ticksBudgeted,
         tickIntervalSec: services.tickIntervalSec,
+        mode,
       }).pipe(
         Effect.catchTag("ClaudeError", (e) =>
           Effect.succeed({
@@ -159,6 +172,16 @@ export const evaluateCompletedSubagent = (
         yield* Ref.set(planRefs.previousFailure, failureContext)
         yield* Ref.set(planRefs.plan, null)
         yield* Ref.set(planRefs.step, 0)
+      }
+    }
+
+    // Capture investigation report when an investigate task completes in select mode
+    if (services.investigationReportRef && plan) {
+      const currentMode = services.modeRef ? yield* Ref.get(services.modeRef) : "select"
+      const completedStep = step < plan.steps.length ? plan.steps[step] : null
+      if (currentMode === "select" && completedStep?.task === "investigate") {
+        const report = yield* Ref.get(subagentRefs.report)
+        yield* Ref.set(services.investigationReportRef, report)
       }
     }
 
@@ -213,6 +236,7 @@ interface SpawnSubagentConfig {
   readonly playerName: string
   readonly containerEnv?: Record<string, string>
   readonly tickIntervalSec: number
+  readonly modeRef?: Ref.Ref<BrainMode>
 }
 
 interface SpawnSubagentServices {
@@ -251,6 +275,8 @@ export const maybeSpawnSubagent = (
       const promptBuilder = yield* PromptBuilderTag
       const systemPrompt = promptBuilder.systemPrompt()
 
+      const mode = smConfig.modeRef ? yield* Ref.get(smConfig.modeRef) : ("select" as BrainMode)
+
       const fiber = yield* runGenericSubagent({
         char: smConfig.char,
         containerId: smConfig.containerId,
@@ -263,6 +289,7 @@ export const maybeSpawnSubagent = (
         personality,
         values,
         tickIntervalSec: smConfig.tickIntervalSec,
+        mode,
       }).pipe(
         Effect.tap((report) => Ref.set(subagentRefs.report, report)),
         Effect.catchAll((e) =>

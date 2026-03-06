@@ -5,7 +5,7 @@ import { demuxStream } from "../logging/log-demux.js"
 import { logStderr, logStreamEvent } from "../logging/console-renderer.js"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { PromptBuilderTag } from "./prompt-builder.js"
-import type { PlanStep } from "./types.js"
+import type { BrainMode, PlanStep } from "./types.js"
 import type { DomainState, DomainSituation } from "./domain-types.js"
 
 export interface SubagentInput {
@@ -20,6 +20,7 @@ export interface SubagentInput {
   personality: string
   values: string
   tickIntervalSec: number
+  mode?: BrainMode
 }
 
 /** Spawn a subagent in a container. Returns the accumulated subagent text output. */
@@ -38,6 +39,7 @@ export const runGenericSubagent = (input: SubagentInput) =>
         values: input.values,
         tickIntervalSec: input.tickIntervalSec,
       },
+      mode: input.mode ?? "select",
     })
 
     yield* log.action(input.char, {
