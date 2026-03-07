@@ -8,3 +8,5 @@ players/*/sm
 .claude-credentials.json
 .env
 repos/
+players/*/me/session
+players/*/me/github.json
