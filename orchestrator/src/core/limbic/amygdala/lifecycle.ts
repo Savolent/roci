@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { Plan, PlanStep, StepCompletionResult } from "./types.js"
+import type { Plan, PlanStep, StepCompletionResult } from "../../types.js"
 
 /**
  * Context passed to the beforePlan hook.

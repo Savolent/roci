@@ -1,8 +1,9 @@
+import * as path from "node:path"
 import { Effect } from "effect"
-import { Claude } from "../services/Claude.js"
-import { CharacterFs, type CharacterConfig } from "../services/CharacterFs.js"
-import { PromptTemplates } from "../services/PromptTemplates.js"
-import { CharacterLog } from "../logging/log-writer.js"
+import { Claude } from "../../../services/Claude.js"
+import { CharacterFs, type CharacterConfig } from "../../../services/CharacterFs.js"
+import { CharacterLog } from "../../../logging/log-writer.js"
+import { loadTemplate } from "../../template.js"
 
 export type DreamType = "normal" | "good" | "nightmare"
 
@@ -24,13 +25,26 @@ function selectDreamType(secretsLineCount: number): DreamType {
   return "normal"
 }
 
+const PROMPTS_DIR = path.resolve(import.meta.dirname, "prompts")
+
+const diaryTemplateFile: Record<DreamType, string> = {
+  normal: "dream-diary.md",
+  good: "dream-diary-good.md",
+  nightmare: "dream-diary-nightmare.md",
+}
+
+const secretsTemplateFile: Record<DreamType, string> = {
+  normal: "dream-secrets.md",
+  good: "dream-secrets-good.md",
+  nightmare: "dream-secrets-nightmare.md",
+}
+
 export const dream = {
   name: "dream" as const,
   execute: (input: DreamInput) =>
     Effect.gen(function* () {
       const claude = yield* Claude
       const charFs = yield* CharacterFs
-      const templates = yield* PromptTemplates
       const log = yield* CharacterLog
 
       const diary = yield* charFs.readDiary(input.char)
@@ -49,7 +63,7 @@ export const dream = {
       })
 
       // 1. Compress diary
-      const diaryPrompt = yield* templates.getDreamDiaryPrompt(dreamType)
+      const diaryPrompt = yield* loadTemplate(path.join(PROMPTS_DIR, diaryTemplateFile[dreamType]))
       const diaryInput = `${diaryPrompt}\n\n<context name="background">\n${background}\n</context>\n\n<context name="secrets">\n${secrets}\n</context>\n\n${diary}`
 
       const compressedDiary = yield* claude.invoke({
@@ -62,7 +76,7 @@ export const dream = {
       yield* charFs.writeDiary(input.char, compressedDiary)
 
       // 2. Compress secrets
-      const secretsPrompt = yield* templates.getDreamSecretsPrompt(dreamType)
+      const secretsPrompt = yield* loadTemplate(path.join(PROMPTS_DIR, secretsTemplateFile[dreamType]))
       const secretsInput = `${secretsPrompt}\n\n<context name="background">\n${background}\n</context>\n\n<context name="diary">\n${compressedDiary}\n</context>\n\n${secrets}`
 
       const compressedSecrets = yield* claude.invoke({

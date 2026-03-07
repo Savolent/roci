@@ -1,5 +1,5 @@
 import { Context } from "effect"
-import type { DomainState, DomainSituation } from "./domain-types.js"
+import type { DomainState, DomainSituation } from "../../domain-types.js"
 
 /**
  * Derives a structured situation from raw domain state.

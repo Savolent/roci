@@ -1,6 +1,6 @@
 import { Layer } from "effect"
-import type { InterruptRule } from "../../core/interrupt.js"
-import { InterruptRegistryTag, createInterruptRegistry } from "../../core/interrupt.js"
+import type { InterruptRule } from "../../core/limbic/amygdala/interrupt.js"
+import { InterruptRegistryTag, createInterruptRegistry } from "../../core/limbic/amygdala/interrupt.js"
 import { SituationType as SituationTypeEnum } from "./types.js"
 import type { GameState, Situation } from "./types.js"
 

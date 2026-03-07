@@ -3,12 +3,12 @@ import type { GameState } from "./types.js"
 import type { GameEvent } from "./ws-types.js"
 import type { Phase, PhaseContext, PhaseResult, PhaseRegistry, ConnectionState } from "../../core/phase.js"
 import type { ExitReason } from "../../core/types.js"
-import type { LifecycleHooks } from "../../core/lifecycle.js"
+import type { LifecycleHooks } from "../../core/limbic/amygdala/lifecycle.js"
 import { CharacterFs } from "../../services/CharacterFs.js"
 import { GameSocket } from "./game-socket.js"
-import { dream } from "../../ai/dream.js"
-import { dinner } from "../../ai/dinner.js"
-import { eventLoop } from "../../monitor/event-loop.js"
+import { dream } from "../../core/limbic/hippocampus/dream.js"
+import { dinner } from "./dinner.js"
+import { runStateMachine } from "../../core/limbic/amygdala/state-machine.js"
 import { logToConsole } from "../../logging/console-renderer.js"
 import { CharacterLog } from "../../logging/log-writer.js"
 
@@ -101,7 +101,7 @@ const activePhase = {
 
       const manualApproval = context.phaseData?.manualApproval as boolean | undefined
 
-      yield* eventLoop({
+      yield* runStateMachine({
         char: context.char,
         containerId: context.containerId,
         playerName: context.char.name,
@@ -112,9 +112,8 @@ const activePhase = {
         initialTick,
         exitSignal,
         hooks,
-        domainBundle: context.domainBundle,
         manualApproval,
-      })
+      }).pipe(Effect.provide(context.domainBundle))
 
       // When the state machine exits, transition to social phase
       return { _tag: "Continue", next: "social", connection: context.connection } as PhaseResult

@@ -5,7 +5,7 @@ import type { Phase, PhaseContext, PhaseResult, PhaseRegistry } from "../../core
 import { Docker } from "../../services/Docker.js"
 import { logToConsole } from "../../logging/console-renderer.js"
 import { CharacterLog } from "../../logging/log-writer.js"
-import { runCycle } from "../../hypervisor/scheduler.js"
+import { runCycle } from "../../core/limbic/hypothalamus/scheduler.js"
 import { pollAndWriteState } from "./state-poller.js"
 import { renderTemplate } from "../../core/template.js"
 import { readFileSync } from "node:fs"

@@ -1,24 +1,24 @@
 import { Effect, Ref, Fiber } from "effect"
-import type { CharacterConfig } from "../services/CharacterFs.js"
-import { CharacterFs } from "../services/CharacterFs.js"
-import { CharacterLog } from "../logging/log-writer.js"
+import type { CharacterConfig } from "../../../services/CharacterFs.js"
+import { CharacterFs } from "../../../services/CharacterFs.js"
+import { CharacterLog } from "../../../logging/log-writer.js"
 import {
   logPlanTransition,
   logStepResult,
   logToConsole,
   formatError,
-} from "../logging/console-renderer.js"
-import type { SkillRegistry } from "./skill.js"
-import type { SituationClassifier } from "./situation.js"
-import type { StateRenderer } from "./state-renderer.js"
-import type { DomainState, DomainSituation } from "./domain-types.js"
-import type { BrainMode, Plan, StepCompletionResult } from "./types.js"
-import type { LifecycleHooks } from "./lifecycle.js"
+} from "../../../logging/console-renderer.js"
+import type { SkillRegistry } from "../../skill.js"
+import type { SituationClassifier } from "../amygdala/situation.js"
+import type { StateRenderer } from "../../state-renderer.js"
+import type { DomainState, DomainSituation } from "../../domain-types.js"
+import type { BrainMode, Plan, StepCompletionResult } from "../../types.js"
+import type { LifecycleHooks } from "../amygdala/lifecycle.js"
 import type { TimingRefs } from "./step-tracker.js"
 import { recordStepTiming, recordStepOutcome } from "./step-tracker.js"
 import { brainEvaluate } from "./brain.js"
 import { runGenericSubagent } from "./subagent.js"
-import { PromptBuilderTag } from "./prompt-builder.js"
+import { PromptBuilderTag } from "../../prompt-builder.js"
 
 export interface SubagentRefs {
   readonly fiber: Ref.Ref<Fiber.RuntimeFiber<string, unknown> | null>

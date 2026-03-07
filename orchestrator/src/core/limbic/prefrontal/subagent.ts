@@ -1,13 +1,13 @@
 import { Effect, Ref } from "effect"
-import { Claude, ClaudeError } from "../services/Claude.js"
-import { CharacterLog } from "../logging/log-writer.js"
-import { demuxStream } from "../logging/log-demux.js"
-import { logStderr } from "../logging/console-renderer.js"
-import { logToConsole } from "../logging/console-renderer.js"
-import type { CharacterConfig } from "../services/CharacterFs.js"
-import { PromptBuilderTag } from "./prompt-builder.js"
-import type { BrainMode, PlanStep } from "./types.js"
-import type { DomainState, DomainSituation } from "./domain-types.js"
+import { Claude, ClaudeError } from "../../../services/Claude.js"
+import { CharacterLog } from "../../../logging/log-writer.js"
+import { demuxStream } from "../../../logging/log-demux.js"
+import { logStderr } from "../../../logging/console-renderer.js"
+import { logToConsole } from "../../../logging/console-renderer.js"
+import type { CharacterConfig } from "../../../services/CharacterFs.js"
+import { PromptBuilderTag } from "../../prompt-builder.js"
+import type { BrainMode, PlanStep } from "../../types.js"
+import type { DomainState, DomainSituation } from "../../domain-types.js"
 
 export interface SubagentInput {
   char: CharacterConfig

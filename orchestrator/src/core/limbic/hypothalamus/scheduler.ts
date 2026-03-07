@@ -3,9 +3,9 @@ import { CommandExecutor } from "@effect/platform"
 import type { CycleConfig, CycleResult } from "./types.js"
 import { runTurn } from "./process-runner.js"
 import { summarizeTimeout } from "./timeout-summarizer.js"
-import { Claude, ClaudeError } from "../services/Claude.js"
-import { CharacterLog } from "../logging/log-writer.js"
-import { logToConsole } from "../logging/console-renderer.js"
+import { Claude, ClaudeError } from "../../../services/Claude.js"
+import { CharacterLog } from "../../../logging/log-writer.js"
+import { logToConsole } from "../../../logging/console-renderer.js"
 
 /**
  * Run a single brain/body cycle:

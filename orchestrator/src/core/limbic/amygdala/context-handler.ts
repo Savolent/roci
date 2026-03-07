@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect"
-import type { CharacterConfig } from "../services/CharacterFs.js"
-import { CharacterLog } from "../logging/log-writer.js"
+import type { CharacterConfig } from "../../../services/CharacterFs.js"
+import { CharacterLog } from "../../../logging/log-writer.js"
 
 export interface ProcessedContext {
   chatMessages?: Array<{ channel: string; sender: string; content: string }>

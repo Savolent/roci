@@ -1,6 +1,6 @@
 import { Layer } from "effect"
-import type { SituationClassifier } from "../../core/situation.js"
-import { SituationClassifierTag } from "../../core/situation.js"
+import type { SituationClassifier } from "../../core/limbic/amygdala/situation.js"
+import { SituationClassifierTag } from "../../core/limbic/amygdala/situation.js"
 import type { GameState } from "./types.js"
 import { classifySituation } from "./situation-classifier.js"
 import { generateBriefing } from "./briefing.js"

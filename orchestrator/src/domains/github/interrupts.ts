@@ -1,6 +1,6 @@
 import { Layer } from "effect"
-import type { InterruptRule } from "../../core/interrupt.js"
-import { InterruptRegistryTag, createInterruptRegistry } from "../../core/interrupt.js"
+import type { InterruptRule } from "../../core/limbic/amygdala/interrupt.js"
+import { InterruptRegistryTag, createInterruptRegistry } from "../../core/limbic/amygdala/interrupt.js"
 import type { GitHubState } from "./types.js"
 
 const UNTRIAGED_THRESHOLD = 5

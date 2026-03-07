@@ -1,10 +1,10 @@
 import { Effect } from "effect"
-import { Claude, ClaudeError } from "../services/Claude.js"
-import type { AiFunction } from "./AiFunction.js"
-import { PromptBuilderTag } from "./prompt-builder.js"
-import type { PlanPromptContext, InterruptPromptContext, EvaluatePromptContext } from "./prompt-builder.js"
-import { StateRendererTag } from "./state-renderer.js"
-import type { Plan, StepCompletionResult } from "./types.js"
+import { Claude, ClaudeError } from "../../../services/Claude.js"
+import type { AiFunction } from "../../AiFunction.js"
+import { PromptBuilderTag } from "../../prompt-builder.js"
+import type { PlanPromptContext, InterruptPromptContext, EvaluatePromptContext } from "../../prompt-builder.js"
+import { StateRendererTag } from "../../state-renderer.js"
+import type { Plan, StepCompletionResult } from "../../types.js"
 
 // ── Plan parsing ────────────────────────────────────────────
 

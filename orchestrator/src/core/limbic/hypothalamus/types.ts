@@ -1,5 +1,5 @@
-import type { ClaudeModel } from "../services/Claude.js"
-import type { CharacterConfig } from "../services/CharacterFs.js"
+import type { ClaudeModel } from "../../../services/Claude.js"
+import type { CharacterConfig } from "../../../services/CharacterFs.js"
 
 /** Configuration for a single brain or body turn. */
 export interface TurnConfig {

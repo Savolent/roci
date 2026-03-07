@@ -1,5 +1,5 @@
 import { Effect, Ref } from "effect"
-import type { StepTiming } from "./types.js"
+import type { StepTiming } from "../../types.js"
 
 export interface TimingRefs {
   readonly tickCount: Ref.Ref<number>

@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import { EventProcessorTag, type EventProcessor, type EventResult } from "../../core/event-source.js"
+import { EventProcessorTag, type EventProcessor, type EventResult } from "../../core/limbic/amygdala/event-source.js"
 import type { GitHubEvent, GitHubState } from "./types.js"
 
 const gitHubEventProcessor: EventProcessor = {

@@ -6,11 +6,10 @@ import { execSync } from "node:child_process"
 import WebSocket from "ws"
 import { Docker, DockerLive } from "./services/Docker.js"
 import { CharacterFs, CharacterFsLive, makeCharacterConfig } from "./services/CharacterFs.js"
-import { PromptTemplatesLive } from "./services/PromptTemplates.js"
 import { ClaudeLive } from "./services/Claude.js"
 import { CharacterLogLive } from "./logging/log-writer.js"
 import { ProjectRoot } from "./services/ProjectRoot.js"
-import { runOrchestrator } from "./pipeline/orchestrator.js"
+import { runOrchestrator } from "./orchestrator.js"
 import { logToConsole } from "./logging/console-renderer.js"
 import { DOMAIN_REGISTRY, loadProjectConfig, resolveConfigs } from "./domains/registry.js"
 import type { ProcedureMessage } from "./core/domain-bundle.js"
@@ -452,7 +451,6 @@ const serviceLayer = Layer.mergeAll(
   DockerLive,
   ClaudeLive,
   CharacterFsLive,
-  PromptTemplatesLive,
   projectRootLayer,
   CharacterLogLive.pipe(Layer.provide(projectRootLayer)),
 )

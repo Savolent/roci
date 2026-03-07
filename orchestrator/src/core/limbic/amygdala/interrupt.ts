@@ -1,6 +1,6 @@
 import { Context } from "effect"
-import type { DomainState, DomainSituation } from "./domain-types.js"
-import type { Alert } from "./types.js"
+import type { DomainState, DomainSituation } from "../../domain-types.js"
+import type { Alert } from "../../types.js"
 
 /**
  * A declarative interrupt rule. When its condition fires, the state machine

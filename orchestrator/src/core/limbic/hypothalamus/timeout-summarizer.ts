@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { Claude, ClaudeError } from "../services/Claude.js"
+import { Claude, ClaudeError } from "../../../services/Claude.js"
 
 /**
  * When a turn times out, generate a short summary of what was accomplished

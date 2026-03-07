@@ -1,6 +1,6 @@
 import { Context } from "effect"
-import type { DomainState, DomainEvent } from "./domain-types.js"
-import type { Alert } from "./types.js"
+import type { DomainState, DomainEvent } from "../../domain-types.js"
+import type { Alert } from "../../types.js"
 
 /**
  * Translates raw domain events into state machine operations.

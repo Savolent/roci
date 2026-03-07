@@ -1,12 +1,11 @@
+import * as path from "node:path"
 import { Effect } from "effect"
 import { FileSystem } from "@effect/platform"
-import * as path from "node:path"
-import { Claude } from "../services/Claude.js"
-import { CharacterFs, type CharacterConfig } from "../services/CharacterFs.js"
-import { PromptTemplates } from "../services/PromptTemplates.js"
-import { CharacterLog } from "../logging/log-writer.js"
-import { ProjectRoot } from "../services/ProjectRoot.js"
-import { renderTemplate } from "../core/template.js"
+import { Claude } from "../../services/Claude.js"
+import { CharacterFs, type CharacterConfig } from "../../services/CharacterFs.js"
+import { CharacterLog } from "../../logging/log-writer.js"
+import { ProjectRoot } from "../../services/ProjectRoot.js"
+import { renderTemplate, loadTemplate } from "../../core/template.js"
 
 export interface DinnerInput {
   char: CharacterConfig
@@ -16,13 +15,14 @@ export interface DinnerOutput {
   diaryUpdated: boolean
 }
 
+const PROMPTS_DIR = path.resolve(import.meta.dirname, "prompts")
+
 export const dinner = {
   name: "dinner" as const,
   execute: (input: DinnerInput) =>
     Effect.gen(function* () {
       const claude = yield* Claude
       const charFs = yield* CharacterFs
-      const templates = yield* PromptTemplates
       const log = yield* CharacterLog
       const fs = yield* FileSystem.FileSystem
       const projectRoot = yield* ProjectRoot
@@ -52,7 +52,7 @@ export const dinner = {
       const diary = yield* charFs.readDiary(input.char)
       const values = yield* charFs.readValues(input.char)
 
-      const dinnerTemplate = yield* templates.getDinnerPrompt()
+      const dinnerTemplate = yield* loadTemplate(path.join(PROMPTS_DIR, "dinner.md"))
 
       const prompt = renderTemplate(dinnerTemplate, {
         SESSION_REPORT: sessionReport,

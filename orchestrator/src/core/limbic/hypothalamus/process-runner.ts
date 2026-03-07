@@ -1,10 +1,10 @@
 import { Effect, Stream, Chunk, Fiber, Ref } from "effect"
 import { Command, CommandExecutor } from "@effect/platform"
 import type { TurnConfig, TurnResult } from "./types.js"
-import { ClaudeError } from "../services/Claude.js"
-import { CharacterLog } from "../logging/log-writer.js"
-import { demuxEvent, printRaw } from "../logging/log-demux.js"
-import { logToConsole } from "../logging/console-renderer.js"
+import { ClaudeError } from "../../../services/Claude.js"
+import { CharacterLog } from "../../../logging/log-writer.js"
+import { demuxEvent, printRaw } from "../../../logging/log-demux.js"
+import { logToConsole } from "../../../logging/console-renderer.js"
 
 /**
  * Shell-safe literal using $'...' ANSI-C quoting.
