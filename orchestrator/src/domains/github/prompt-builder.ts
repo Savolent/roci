@@ -1,3 +1,5 @@
+import * as path from "node:path"
+import { readFileSync, readdirSync } from "node:fs"
 import { Layer } from "effect"
 import type {
   PromptBuilder,
@@ -9,123 +11,56 @@ import type {
 import { PromptBuilderTag } from "../../core/prompt-builder.js"
 import type { GitHubState, GitHubSituation } from "./types.js"
 import type { BrainMode } from "../../core/types.js"
+import { parseFrontmatter, renderTemplate } from "../../core/template.js"
+import {
+  renderStateSummary,
+  buildTimingSection,
+  renderIdentitySection,
+  renderProcedureContext,
+  subagentCommon,
+  renderReposSummary,
+} from "./prompt-helpers.js"
 
-// ── Shared helpers ──────────────────────────────────────────
+// ── Load procedure + prompt templates at startup ─────────────
 
-function renderReposSummary(state: GitHubState, situation: GitHubSituation): string {
-  const authUser = state.authenticatedUser
-  return state.repos.map((repo, i) => {
-    const sit = situation.repos[i]
-    const lines = [
-      `### ${repo.owner}/${repo.repo} — ${sit?.type ?? "unknown"}`,
-      `CI: ${repo.ciStatus} | Issues: ${repo.openIssues.length} | PRs: ${repo.openPRs.length}`,
-    ]
-    lines.push(`Shared clone: \`${repo.clonePath}\``)
-    if (repo.worktreePath) {
-      lines.push(`Your worktree: \`${repo.worktreePath}\` (branch: ${repo.currentBranch ?? "unknown"})`)
-    } else {
-      lines.push(`No active worktree — create one to start coding`)
-    }
-
-    const untriaged = repo.openIssues.filter((i) => !i.labels.includes("triaged"))
-    if (untriaged.length > 0) lines.push(`Untriaged: ${untriaged.length}`)
-
-    const reviewable = repo.openPRs.filter(
-      (pr) => !pr.draft && pr.checks === "passing" && pr.reviewStatus === "review_required"
-        && pr.author !== authUser,
-    )
-    if (reviewable.length > 0) lines.push(`PRs ready for review: ${reviewable.length}`)
-
-    return lines.join("\n")
-  }).join("\n\n")
+interface LoadedTemplate {
+  name: string
+  description: string
+  template: string
 }
 
-function renderStateSummary(state: GitHubState, situation: GitHubSituation): string {
-  const authUser = state.authenticatedUser
-  return state.repos.map((repo, i) => {
-    const sit = situation.repos[i]
-    const lines = [
-      `## ${repo.owner}/${repo.repo} — ${sit?.type ?? "unknown"}`,
-      `CI: ${repo.ciStatus} | Issues: ${repo.openIssues.length} | PRs: ${repo.openPRs.length}`,
-    ]
-
-    if (repo.openIssues.length > 0) {
-      lines.push("Issues:")
-      for (const issue of repo.openIssues) {
-        const labels = issue.labels.length > 0 ? ` [${issue.labels.join(", ")}]` : ""
-        lines.push(`  #${issue.number}: ${issue.title}${labels}`)
-      }
-    }
-
-    if (repo.openPRs.length > 0) {
-      lines.push("PRs:")
-      for (const pr of repo.openPRs) {
-        const status = pr.draft ? "draft" : `checks:${pr.checks} review:${pr.reviewStatus}`
-        const yours = authUser && pr.author === authUser ? " (yours)" : ""
-        lines.push(`  #${pr.number}: ${pr.title} (${status})${yours}`)
-      }
-    }
-
-    return lines.join("\n")
-  }).join("\n\n")
-}
-
-function buildTimingSection(ctx: PlanPromptContext): string {
-  if (!ctx.stepTimingHistory || ctx.stepTimingHistory.length === 0) return ""
-  return `\n## Recent Step Outcomes\n${ctx.stepTimingHistory.map((h) => {
-    let line = `[${h.task}] "${h.goal}" — ${h.ticksConsumed}/${h.ticksBudgeted} ticks${h.overrun ? " OVERRUN" : ""}`
-    if (h.succeeded !== undefined) {
-      line += ` -> ${h.succeeded ? "SUCCESS" : "FAILED"}`
-      if (h.reason) line += `: ${h.reason}`
-    }
-    return line
-  }).join("\n")}\n\nUse this data to set realistic timeoutTicks.\n`
-}
-
-function renderIdentitySection(ctx: { background: string; values: string }): string {
-  return `## Your Identity
-${ctx.background}
-
-## Your Values
-${ctx.values}`
-}
-
-function renderProcedureContext(ctx: PlanPromptContext): string {
-  const sections: string[] = []
-  if (ctx.procedureTargets && ctx.procedureTargets.length > 0) {
-    sections.push(`## Procedure Targets\nYou are focused on: ${ctx.procedureTargets.join(", ")}`)
+function loadTemplatesFromDir(dirPath: string): Map<string, LoadedTemplate> {
+  const templates = new Map<string, LoadedTemplate>()
+  let entries: string[]
+  try { entries = readdirSync(dirPath) } catch { return templates }
+  for (const entry of entries) {
+    if (!entry.endsWith(".md")) continue
+    const filePath = path.join(dirPath, entry)
+    const raw = readFileSync(filePath, "utf-8")
+    const { meta, body } = parseFrontmatter(raw)
+    const name = (meta.name as string) ?? entry.replace(/\.md$/, "")
+    templates.set(name, {
+      name,
+      description: (meta.description as string) ?? "",
+      template: body,
+    })
   }
-  if (ctx.investigationReport) {
-    sections.push(`## Investigation Findings\n${ctx.investigationReport.slice(-2000)}`)
-  }
-  return sections.join("\n\n")
+  return templates
 }
 
-// ── Plan prompts by mode ────────────────────────────────────
+const DOMAIN_DIR = path.resolve(import.meta.dirname, ".")
+const procedureTemplates = loadTemplatesFromDir(path.join(DOMAIN_DIR, "procedures"))
+const promptTemplates = loadTemplatesFromDir(path.join(DOMAIN_DIR, "prompts"))
 
-function planPromptSelect(ctx: PlanPromptContext): string {
+// ── Select procedure: build the {{instructions}} and {{investigationSection}} blocks ──
+
+function buildSelectInstructions(ctx: PlanPromptContext): { investigationSection: string; instructions: string } {
   const state = ctx.state as GitHubState
-  const situation = ctx.situation as GitHubSituation
-  const stateSummary = renderStateSummary(state, situation)
-  const failureSection = ctx.previousFailure
-    ? `\n## Previous Plan Failed\n${ctx.previousFailure}\n`
-    : ""
 
   if (!ctx.investigationReport) {
-    // No investigation yet — produce a 1-step investigation plan
-    return `You are a software engineer maintaining ${state.repos.length} repositor${state.repos.length === 1 ? "y" : "ies"}.
-
-## Current State
-${stateSummary}
-
-${ctx.briefing}
-
-${renderIdentitySection(ctx)}
-
-## Your Diary
-${ctx.diary.slice(-2000)}
-${failureSection}
-## Instructions
+    return {
+      investigationSection: "",
+      instructions: `## Instructions
 
 You need to investigate before committing to a plan. Produce a 1-step plan with task "investigate" that gathers the context you need to decide what to do next.
 
@@ -146,30 +81,21 @@ Respond with JSON:
     }
   ]
 }
-\`\`\``
+\`\`\``,
+    }
   }
 
-  // Have investigation report — MUST pick a procedure
-  return `You are a software engineer maintaining ${state.repos.length} repositor${state.repos.length === 1 ? "y" : "ies"}.
+  // Build available procedures from loaded templates (excluding "select")
+  const availableProcs = Array.from(procedureTemplates.values())
+    .filter(p => p.name !== "select")
+    .map(p => `- **${p.name}**: ${p.description}`)
+    .join("\n")
 
-## Current State
-${stateSummary}
+  return {
+    investigationSection: `## Investigation Report\n${ctx.investigationReport.slice(-3000)}`,
+    instructions: `## Available Procedures
 
-${ctx.briefing}
-
-## Investigation Report
-${ctx.investigationReport.slice(-3000)}
-
-${renderIdentitySection(ctx)}
-
-## Your Diary
-${ctx.diary.slice(-2000)}
-${failureSection}
-## Available Procedures
-
-- **triage**: Label and comment on issues. Steps should target specific issue numbers.
-- **feature**: Pick an issue, create branch, implement, test, PR. One issue per cycle.
-- **review**: Review a specific PR (not authored by you). Read diff, check correctness, submit feedback.
+${availableProcs}
 
 ## Instructions
 
@@ -184,7 +110,7 @@ ${buildTimingSection(ctx)}
 Respond with JSON (the "procedure" field is REQUIRED):
 \`\`\`json
 {
-  "procedure": "triage|feature|review",
+  "procedure": "${Array.from(procedureTemplates.keys()).filter(n => n !== "select").join("|")}",
   "targets": ["#12", "#15"],
   "reasoning": "Why this procedure and these targets",
   "steps": [
@@ -196,162 +122,52 @@ Respond with JSON (the "procedure" field is REQUIRED):
     }
   ]
 }
-\`\`\``
+\`\`\``,
+  }
 }
 
-function planPromptTriage(ctx: PlanPromptContext): string {
+// ── Plan prompt (template-based for non-select, inline for select) ──
+
+function planPrompt(ctx: PlanPromptContext): string {
   const state = ctx.state as GitHubState
   const situation = ctx.situation as GitHubSituation
 
-  return `You are triaging issues across ${state.repos.length} repositor${state.repos.length === 1 ? "y" : "ies"}.
+  const template = procedureTemplates.get(ctx.mode)
+  if (!template) {
+    // Fallback to select if procedure not found
+    return planPrompt({ ...ctx, mode: "select" })
+  }
 
-## Current State
-${renderStateSummary(state, situation)}
+  const failureSection = ctx.previousFailure
+    ? `\n## Previous Plan Failed\n${ctx.previousFailure}\n`
+    : ""
 
-${ctx.briefing}
+  const repoCount = String(state.repos.length)
+  const repoPlural = state.repos.length === 1 ? "y" : "ies"
 
-${renderProcedureContext(ctx)}
+  const baseVars: Record<string, string> = {
+    repoCount,
+    repoPlural,
+    stateSummary: renderStateSummary(state, situation),
+    briefing: ctx.briefing,
+    identitySection: renderIdentitySection(ctx),
+    timingSection: buildTimingSection(ctx),
+    tickIntervalSec: String(ctx.tickIntervalSec),
+    failureSection,
+    diary: ctx.diary.slice(-2000),
+    procedureContext: renderProcedureContext(ctx),
+  }
 
-${renderIdentitySection(ctx)}
-${buildTimingSection(ctx)}
-## Instructions
+  if (ctx.mode === "select") {
+    const { investigationSection, instructions } = buildSelectInstructions(ctx)
+    baseVars.investigationSection = investigationSection
+    baseVars.instructions = instructions
+  }
 
-Create steps to triage specific issues. Each step should target ONE issue: "Label and comment on #N in owner/repo". Focus on the targets listed above.
-
-Do NOT create a step like "triage all issues" — be specific. Each tick is ${ctx.tickIntervalSec} seconds.
-
-Respond with JSON:
-\`\`\`json
-{
-  "reasoning": "Why these issues need triage",
-  "steps": [
-    {
-      "task": "triage",
-      "goal": "Label and comment on #N in owner/repo",
-      "successCondition": "Issue #N has labels and a triage comment",
-      "timeoutTicks": 3
-    }
-  ]
-}
-\`\`\``
-}
-
-function planPromptFeature(ctx: PlanPromptContext): string {
-  const state = ctx.state as GitHubState
-  const situation = ctx.situation as GitHubSituation
-
-  return `You are implementing a feature across ${state.repos.length} repositor${state.repos.length === 1 ? "y" : "ies"}.
-
-## Current State
-${renderStateSummary(state, situation)}
-
-${ctx.briefing}
-
-${renderProcedureContext(ctx)}
-
-${renderIdentitySection(ctx)}
-${buildTimingSection(ctx)}
-## Worktree Workflow
-1. Create a branch and worktree from the shared clone
-2. Implement changes in the worktree
-3. Run tests
-4. Commit with sign-off and push
-5. Create PR with clear description
-
-## Instructions
-
-Plan steps for ONE issue — specifically the target listed above. Keep changes small and reviewable. Run tests before creating a PR. Write good commit messages and PR descriptions. Do NOT pick a different issue than the one selected during investigation.
-
-Each tick is ${ctx.tickIntervalSec} seconds.
-
-Respond with JSON:
-\`\`\`json
-{
-  "reasoning": "What feature/fix and why",
-  "steps": [
-    {
-      "task": "code",
-      "goal": "Create branch, implement fix for #N in owner/repo",
-      "successCondition": "PR created for #N",
-      "model": "sonnet",
-      "timeoutTicks": 10
-    }
-  ]
-}
-\`\`\``
-}
-
-function planPromptReview(ctx: PlanPromptContext): string {
-  const state = ctx.state as GitHubState
-  const situation = ctx.situation as GitHubSituation
-
-  return `You are reviewing pull requests across ${state.repos.length} repositor${state.repos.length === 1 ? "y" : "ies"}.
-
-## Current State
-${renderStateSummary(state, situation)}
-
-${ctx.briefing}
-
-${renderProcedureContext(ctx)}
-
-${renderIdentitySection(ctx)}
-${buildTimingSection(ctx)}
-## Review Workflow
-1. Read the PR description and diff carefully
-2. Check for correctness, style, and edge cases
-3. Submit review with constructive, specific feedback
-
-## Instructions
-
-Plan steps to review specific PRs. Each step should target ONE PR.
-
-Each tick is ${ctx.tickIntervalSec} seconds.
-
-Respond with JSON:
-\`\`\`json
-{
-  "reasoning": "Which PRs to review and why",
-  "steps": [
-    {
-      "task": "review",
-      "goal": "Review PR #N in owner/repo",
-      "successCondition": "Review submitted for PR #N",
-      "timeoutTicks": 5
-    }
-  ]
-}
-\`\`\``
-}
-
-const PLAN_PROMPT_BY_MODE: Record<BrainMode, (ctx: PlanPromptContext) => string> = {
-  select: planPromptSelect,
-  triage: planPromptTriage,
-  feature: planPromptFeature,
-  review: planPromptReview,
+  return renderTemplate(template.template, baseVars)
 }
 
 // ── Subagent prompts by task type ───────────────────────────
-
-function subagentCommon(ctx: SubagentPromptContext): string {
-  const state = ctx.state as GitHubState
-  const situation = ctx.situation as GitHubSituation
-  const budgetSeconds = Math.round(ctx.step.timeoutTicks * ctx.identity.tickIntervalSec)
-
-  return `## Your Task
-Type: ${ctx.step.task}
-Goal: ${ctx.step.goal}
-Success condition: ${ctx.step.successCondition}
-Time budget: ${ctx.step.timeoutTicks} ticks (~${budgetSeconds}s)
-
-## Repository Overview
-${renderReposSummary(state, situation)}
-
-## Your Identity
-${ctx.identity.personality.slice(0, 800)}
-
-## Your Values
-${ctx.identity.values.slice(0, 500)}`
-}
 
 function subagentInvestigate(ctx: SubagentPromptContext): string {
   return `You are investigating repository state. This is a **READ-ONLY** task — do not create, modify, or delete any files.
@@ -393,8 +209,6 @@ Report your triage recommendations in a structured format:
 }
 
 function subagentCode(ctx: SubagentPromptContext): string {
-  const state = ctx.state as GitHubState
-
   return `You are implementing code changes.
 
 ${subagentCommon(ctx)}
@@ -668,7 +482,7 @@ You can **read and write your diary file** (\`./me/DIARY.md\`). You cannot inter
 - Modifying files outside \`./me/\``
 }
 
-const SYSTEM_PROMPT_BY_MODE: Record<BrainMode, (task: string) => string> = {
+const SYSTEM_PROMPT_BY_MODE: Record<string, (task: string) => string> = {
   select: systemPromptReadOnly,
   triage: systemPromptTriage,
   feature: systemPromptFeature,
@@ -682,96 +496,74 @@ const SYSTEM_PROMPT_BY_TASK: Record<string, (task: string) => string> = {
   investigate_ci: systemPromptReadOnly,
 }
 
+// ── Evaluate + Interrupt prompts (template-based) ───────────
+
+function evaluatePrompt(ctx: EvaluatePromptContext): string {
+  const template = promptTemplates.get("evaluate")
+  if (!template) {
+    throw new Error("evaluate.md prompt template not found")
+  }
+
+  const secondsConsumed = Math.round(ctx.ticksConsumed * ctx.tickIntervalSec)
+  const secondsBudgeted = Math.round(ctx.ticksBudgeted * ctx.tickIntervalSec)
+  const overrunDelta = ctx.ticksConsumed - ctx.ticksBudgeted
+  const overrunWarning = overrunDelta > 0
+    ? `\nWARNING: exceeded tick budget by ${overrunDelta} ticks.`
+    : ""
+
+  const modeHint = ctx.mode === "select"
+    ? "\nThis was an investigation step. If findings are sufficient, mark complete so the brain can pick a procedure next."
+    : ""
+
+  return renderTemplate(template.template, {
+    goal: ctx.step.goal,
+    successCondition: ctx.step.successCondition,
+    subagentReport: ctx.subagentReport.slice(-2000),
+    stateDiff: ctx.stateDiff,
+    conditionResult: ctx.conditionCheck.complete ? "PASS" : "FAIL",
+    conditionReason: ctx.conditionCheck.reason,
+    ticksConsumed: String(ctx.ticksConsumed),
+    ticksBudgeted: String(ctx.ticksBudgeted),
+    secondsConsumed: String(secondsConsumed),
+    secondsBudgeted: String(secondsBudgeted),
+    overrunWarning,
+    modeHint,
+  })
+}
+
+function interruptPrompt(ctx: InterruptPromptContext): string {
+  const template = promptTemplates.get("interrupt")
+  if (!template) {
+    throw new Error("interrupt.md prompt template not found")
+  }
+
+  const currentPlanSummary = ctx.currentPlan
+    ? `Current plan:\n${ctx.currentPlan.steps.map((s, i) => `${i + 1}. [${s.task}] ${s.goal}`).join("\n")}`
+    : "No active plan."
+
+  const modeContext = ctx.mode !== "select"
+    ? `\n## Interrupted Context\nYou were in **${ctx.mode}** mode${ctx.procedureTargets?.length ? ` targeting ${ctx.procedureTargets.join(", ")}` : ""}. A critical interrupt occurred. You are being reset to **select** mode — investigate and pick a new procedure.\n`
+    : ""
+
+  const alertLines = ctx.alerts.map((a) =>
+    `[${a.priority}] ${a.message} (suggested: ${a.suggestedAction ?? "none"})`
+  ).join("\n")
+
+  return renderTemplate(template.template, {
+    alertLines,
+    modeContext,
+    briefing: ctx.briefing,
+    currentPlanSummary,
+    background: ctx.background.slice(0, 1000),
+  })
+}
+
 // ── Prompt builder implementation ───────────────────────────
 
 const gitHubPromptBuilder: PromptBuilder = {
-  planPrompt(ctx: PlanPromptContext): string {
-    const promptFn = PLAN_PROMPT_BY_MODE[ctx.mode] ?? planPromptSelect
-    return promptFn(ctx)
-  },
-
-  interruptPrompt(ctx: InterruptPromptContext): string {
-    const currentPlanSummary = ctx.currentPlan
-      ? `Current plan:\n${ctx.currentPlan.steps.map((s, i) => `${i + 1}. [${s.task}] ${s.goal}`).join("\n")}`
-      : "No active plan."
-
-    const modeContext = ctx.mode !== "select"
-      ? `\n## Interrupted Context\nYou were in **${ctx.mode}** mode${ctx.procedureTargets?.length ? ` targeting ${ctx.procedureTargets.join(", ")}` : ""}. A critical interrupt occurred. You are being reset to **select** mode — investigate and pick a new procedure.\n`
-      : ""
-
-    return `INTERRUPT: Critical alerts require immediate attention.
-
-## Alerts
-${ctx.alerts.map((a) => `[${a.priority}] ${a.message} (suggested: ${a.suggestedAction ?? "none"})`).join("\n")}
-${modeContext}
-## Current State
-${ctx.briefing}
-
-## ${currentPlanSummary}
-
-## Identity
-${ctx.background.slice(0, 1000)}
-
-Respond with a new plan as JSON. Pick a procedure for the response if appropriate.
-
-\`\`\`json
-{
-  "procedure": "triage|feature|review",
-  "targets": ["#N"],
-  "reasoning": "Why this plan addresses the alerts",
-  "steps": [
-    {
-      "task": "investigate_ci|triage|code|review",
-      "goal": "What to accomplish — specify which repo",
-      "successCondition": "How to verify",
-      "timeoutTicks": 5
-    }
-  ]
-}
-\`\`\``
-  },
-
-  evaluatePrompt(ctx: EvaluatePromptContext): string {
-    const secondsConsumed = Math.round(ctx.ticksConsumed * ctx.tickIntervalSec)
-    const secondsBudgeted = Math.round(ctx.ticksBudgeted * ctx.tickIntervalSec)
-    const overrunDelta = ctx.ticksConsumed - ctx.ticksBudgeted
-    const overrunWarning = overrunDelta > 0
-      ? `\nWARNING: exceeded tick budget by ${overrunDelta} ticks.`
-      : ""
-
-    const modeHint = ctx.mode === "select"
-      ? "\nThis was an investigation step. If findings are sufficient, mark complete so the brain can pick a procedure next."
-      : ""
-
-    return `Evaluate whether this step was completed successfully.
-
-## Step
-Goal: ${ctx.step.goal}
-Success condition: ${ctx.step.successCondition}
-
-## Subagent Report
-${ctx.subagentReport.slice(-2000)}
-
-## State Changes
-${ctx.stateDiff}
-
-## Condition Check
-Condition: "${ctx.step.successCondition}"
-Result: ${ctx.conditionCheck.complete ? "PASS" : "FAIL"} - ${ctx.conditionCheck.reason}
-
-The deterministic check is advisory. Use the subagent report and state changes to judge completion.
-
-## Timing
-Consumed ${ctx.ticksConsumed} of ${ctx.ticksBudgeted} ticks (~${secondsConsumed}s of ~${secondsBudgeted}s).${overrunWarning}
-${modeHint}
-Respond with JSON:
-\`\`\`json
-{
-  "complete": true,
-  "reason": "Why the step is/isn't complete"
-}
-\`\`\``
-  },
+  planPrompt,
+  interruptPrompt,
+  evaluatePrompt,
 
   subagentPrompt(ctx: SubagentPromptContext): string {
     const promptFn = SUBAGENT_PROMPT_BY_TASK[ctx.step.task] ?? subagentDefault
@@ -783,6 +575,9 @@ Respond with JSON:
     return promptFn(task)
   },
 }
+
+/** List of valid procedures (excluding "select") for plan parsing. */
+export const validProcedures: string[] = Array.from(procedureTemplates.keys()).filter(n => n !== "select")
 
 /** Layer providing the GitHub prompt builder. */
 export const GitHubPromptBuilderLive = Layer.succeed(PromptBuilderTag, gitHubPromptBuilder)
