@@ -1,7 +1,7 @@
 import { Effect, Ref, Stream } from "effect"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { CharacterLog, type LogEntry } from "./log-writer.js"
-import { logCharThought, logThinking, logCharResult, logStreamEvent } from "./console-renderer.js"
+import { tag } from "./console-renderer.js"
 
 /** Patterns matching sm CLI commands that are social (chat/forum). */
 const SOCIAL_COMMAND_PATTERN = /^sm\s+(chat|forum)\b/
@@ -15,9 +15,15 @@ function parseStreamJson(line: string): Record<string, unknown> | null {
   }
 }
 
+/** Print a raw stream-json line to stdout with a character:source tag prefix. */
+export function printRaw(character: string, source: string, line: string): void {
+  console.log(`${tag(character, source)} ${line}`)
+}
+
 /** Classify and route a single stream-json event to the appropriate log streams. */
 export const demuxEvent = (
   char: CharacterConfig,
+  rawLine: string,
   event: Record<string, unknown>,
   source: LogEntry["source"] = "subagent",
   textAccumulator?: Ref.Ref<string[]>,
@@ -27,19 +33,16 @@ export const demuxEvent = (
     const ts = new Date().toISOString()
     const type = event.type as string | undefined
 
+    // Raw stream-json to console — every event, untruncated
+    printRaw(char.name, source, rawLine)
+
     if (type === "assistant") {
       const message = event.message as Record<string, unknown> | undefined
       const content = message?.content as Array<Record<string, unknown>> | undefined
       if (!content) return
 
       for (const block of content) {
-        if (block.type === "thinking") {
-          // Extended thinking — show on console
-          const text = (block.thinking as string) ?? ""
-          if (text.trim()) {
-            yield* logThinking(char.name, text)
-          }
-        } else if (block.type === "text") {
+        if (block.type === "text") {
           yield* log.thought(char, {
             timestamp: ts,
             source,
@@ -52,9 +55,6 @@ export const demuxEvent = (
           if (textAccumulator) {
             yield* Ref.update(textAccumulator, (arr) => [...arr, block.text as string])
           }
-
-          // Character's voice — shown on console
-          yield* logCharThought(char.name, block.text as string)
         } else if (block.type === "tool_use") {
           const toolName = block.name as string
           const input = block.input as Record<string, unknown> | undefined
@@ -76,32 +76,7 @@ export const demuxEvent = (
           if (toolName === "Bash" && SOCIAL_COMMAND_PATTERN.test(command)) {
             yield* log.word(char, entry)
           }
-
-          // Show tool invocations on console with a compact summary
-          if (toolName === "Bash") {
-            const preview = command.split("\n")[0].slice(0, 120)
-            yield* logStreamEvent(char.name, source, `$ ${preview}`)
-          } else if (toolName === "Agent") {
-            const desc = (input?.description as string) ?? (input?.prompt as string)?.slice(0, 80) ?? ""
-            yield* logStreamEvent(char.name, source, `[Agent] ${desc}`)
-          } else if (toolName === "Read" || toolName === "Glob" || toolName === "Grep") {
-            const target = (input?.file_path as string) ?? (input?.pattern as string) ?? ""
-            yield* logStreamEvent(char.name, source, `[${toolName}] ${target}`)
-          } else if (toolName === "Edit" || toolName === "Write") {
-            const target = (input?.file_path as string) ?? ""
-            yield* logStreamEvent(char.name, source, `[${toolName}] ${target}`)
-          } else {
-            yield* logStreamEvent(char.name, source, `[${toolName}]`)
-          }
         }
-        // Other content block types suppressed from stdout
-      }
-    } else if (type === "result") {
-      // Subagent result — only show errors on console
-      const isError = event.is_error as boolean | undefined
-      const result = event.result as string | undefined
-      if (isError && result) {
-        yield* logStreamEvent(char.name, "error", `Subagent error: ${result}`)
       }
     } else if (type === "user") {
       // tool_result — log to actions
@@ -112,22 +87,7 @@ export const demuxEvent = (
         type: "tool_result",
         content: event.message,
       })
-
-      // Show tool result output (truncated: first 10 + last 5 lines)
-      const message = event.message as Record<string, unknown> | undefined
-      const resultContent = message?.content as Array<Record<string, unknown>> | undefined
-      if (resultContent) {
-        for (const block of resultContent) {
-          if (block.type === "tool_result") {
-            const text = (block.content as string) ?? ""
-            if (text.trim()) {
-              yield* logCharResult(char.name, text)
-            }
-          }
-        }
-      }
     }
-    // system, unknown event types suppressed from stdout (still captured in stream.jsonl)
   })
 
 /**
@@ -152,10 +112,10 @@ export const demuxStream = (
         // Try to parse as JSON
         const event = parseStreamJson(line)
         if (event) {
-          yield* demuxEvent(char, event, source, textAccumulator)
+          yield* demuxEvent(char, line, event, source, textAccumulator)
         } else {
-          // Non-JSON line — log as [raw] so it's visible
-          yield* logStreamEvent(char.name, "raw", line)
+          // Non-JSON line — print raw
+          printRaw(char.name, "raw", line)
         }
       }),
     ),

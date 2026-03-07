@@ -2,7 +2,8 @@ import { Effect, Ref } from "effect"
 import { Claude, ClaudeError } from "../services/Claude.js"
 import { CharacterLog } from "../logging/log-writer.js"
 import { demuxStream } from "../logging/log-demux.js"
-import { logStderr, logStreamEvent } from "../logging/console-renderer.js"
+import { logStderr } from "../logging/console-renderer.js"
+import { logToConsole } from "../logging/console-renderer.js"
 import type { CharacterConfig } from "../services/CharacterFs.js"
 import { PromptBuilderTag } from "./prompt-builder.js"
 import type { BrainMode, PlanStep } from "./types.js"
@@ -95,7 +96,7 @@ export const runGenericSubagent = (input: SubagentInput) =>
     const collectedText = yield* Ref.get(textRef)
 
     if (collectedText.length === 0) {
-      yield* logStreamEvent(input.char.name, "warn", "Subagent produced no text output")
+      yield* logToConsole(input.char.name, "warn", "Subagent produced no text output")
     }
 
     yield* log.action(input.char, {

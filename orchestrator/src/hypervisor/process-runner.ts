@@ -3,7 +3,7 @@ import { Command, CommandExecutor } from "@effect/platform"
 import type { TurnConfig, TurnResult } from "./types.js"
 import { ClaudeError } from "../services/Claude.js"
 import { CharacterLog } from "../logging/log-writer.js"
-import { demuxEvent } from "../logging/log-demux.js"
+import { demuxEvent, printRaw } from "../logging/log-demux.js"
 import { logToConsole } from "../logging/console-renderer.js"
 
 /**
@@ -111,7 +111,9 @@ export const runTurn = (config: TurnConfig): Effect.Effect<
 
             const event = parseStreamJson(line)
             if (event) {
-              yield* demuxEvent(config.char, event, source, textAccumulator)
+              yield* demuxEvent(config.char, line, event, source, textAccumulator)
+            } else {
+              printRaw(config.char.name, "raw", line)
             }
           }),
         ),
