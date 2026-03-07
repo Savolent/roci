@@ -160,6 +160,6 @@ export const SpaceMoltPromptBuilderLive = Layer.effect(
       templates[name] = yield* loadTemplate(path.join(PROMPTS_DIR, `${name}.md`))
     }
     const inGameClaudeMd = yield* loadTemplate(path.join(PROMPTS_DIR, "in-game-claude.md"))
-    return { ...makePromptBuilder(templates), systemPrompt: () => inGameClaudeMd }
+    return { ...makePromptBuilder(templates), systemPrompt: (_mode, _task) => inGameClaudeMd }
   }),
 )

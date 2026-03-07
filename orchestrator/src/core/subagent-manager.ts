@@ -259,9 +259,8 @@ export const maybeSpawnSubagent = (
       const personality = yield* charFs.readBackground(smConfig.char)
       const values = yield* charFs.readValues(smConfig.char)
       const promptBuilder = yield* PromptBuilderTag
-      const systemPrompt = promptBuilder.systemPrompt()
-
       const mode = smConfig.modeRef ? yield* Ref.get(smConfig.modeRef) : ("select" as BrainMode)
+      const systemPrompt = promptBuilder.systemPrompt(mode, finalStep.task)
 
       const fiber = yield* runGenericSubagent({
         char: smConfig.char,

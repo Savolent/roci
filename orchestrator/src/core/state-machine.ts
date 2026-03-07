@@ -213,7 +213,7 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
         const personality = yield* charFsLocal.readBackground(config.char)
         const values = yield* charFsLocal.readValues(config.char)
         const promptBuilder = yield* PromptBuilderTag
-        const systemPromptText = promptBuilder.systemPrompt()
+        const systemPromptText = promptBuilder.systemPrompt(mode, "diary")
         const state = yield* Ref.get(gameStateRef)
         const situation = classifier.classify(state)
 
@@ -223,7 +223,7 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
           playerName: config.playerName,
           systemPrompt: systemPromptText,
           containerEnv: config.containerEnv,
-          step: { task: "diary", goal: "Update diary", model: "haiku", successCondition: "diary updated", timeoutTicks: 3 },
+          step: { task: "diary", goal: diaryPrompt, model: "haiku", successCondition: "diary updated", timeoutTicks: 3 },
           state,
           situation,
           personality,
