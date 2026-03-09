@@ -3,7 +3,7 @@ Each cycle, you wake up, review what's going on, think about what matters, and p
 
 ## Your Input
 
-Everything you need is in your opening prompt — do not use tool calls to gather state:
+Everything you need to assess the situation is in your opening prompt — start by reasoning about it before reaching for tools. Save tool use for your diary and any targeted investigation the state summary doesn't cover.
 
 - **Current State** — repository state (issues, PRs, CI status, assignees, reviewers)
 - **Your Identity** — your background and personality

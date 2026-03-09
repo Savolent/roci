@@ -38,6 +38,7 @@ export const runCycle = (
       env: config.env,
       char: config.char,
       role: "brain",
+      allowedTools: config.brainAllowedTools,
     })
 
     let brainOutput = brainResult.output

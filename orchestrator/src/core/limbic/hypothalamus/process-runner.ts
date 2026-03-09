@@ -62,8 +62,14 @@ export const runTurn = (config: TurnConfig): Effect.Effect<
         "--verbose",
       ]
 
-      if (config.model !== "opus") {
+      // Brain (opus) uses full effort; body needs normal effort for multi-step
+      // workflows; only apply low effort to non-body, non-opus roles (old subagents)
+      if (config.model !== "opus" && config.role !== "body") {
         claudeArgs.push("--effort", "low")
+      }
+
+      if (config.allowedTools && config.allowedTools.length > 0) {
+        claudeArgs.push("--allowedTools", config.allowedTools.join(","))
       }
 
       if (config.systemPrompt) {
@@ -120,13 +126,18 @@ export const runTurn = (config: TurnConfig): Effect.Effect<
         Stream.runDrain,
       ).pipe(Effect.fork)
 
-      // Race: stream processing vs timeout
+      // Wait for the process to actually exit (not just stdout to drain).
+      // Stdout can close/drain mid-session (e.g. after a ToolSearch response)
+      // while the claude process is still running and waiting for the next API call.
+      const exitFiber = yield* process.exitCode.pipe(Effect.fork)
+
+      // Race: process exit vs timeout
       const timeoutEffect = Effect.sleep(config.timeoutMs).pipe(
         Effect.map(() => ({ timedOut: true as const })),
       )
 
-      const completionEffect = Fiber.join(streamFiber).pipe(
-        Effect.map(() => ({ timedOut: false as const })),
+      const completionEffect = Fiber.join(exitFiber).pipe(
+        Effect.map((exitCode) => ({ timedOut: false as const, exitCode: Number(exitCode) })),
       )
 
       const raceResult = yield* Effect.race(completionEffect, timeoutEffect)
@@ -135,12 +146,21 @@ export const runTurn = (config: TurnConfig): Effect.Effect<
 
       if (raceResult.timedOut) {
         timedOut = true
+        yield* Fiber.interrupt(exitFiber).pipe(Effect.catchAll(() => Effect.void))
         yield* Fiber.interrupt(streamFiber).pipe(Effect.catchAll(() => Effect.void))
         yield* Fiber.interrupt(stderrFiber).pipe(Effect.catchAll(() => Effect.void))
         yield* logToConsole(config.char.name, config.role, "TIMED OUT — interrupting")
       } else {
         timedOut = false
-        yield* Fiber.join(stderrFiber).pipe(Effect.catchAll(() => Effect.succeed("")))
+        const exitCode = "exitCode" in raceResult ? (raceResult as { exitCode: number }).exitCode : -1
+        const elapsed = Math.round((Date.now() - start) / 1000)
+        yield* logToConsole(config.char.name, config.role, `Process exited (code=${exitCode}) after ${elapsed}s`)
+        // Process exited — wait for stream to finish draining buffered output
+        yield* Fiber.join(streamFiber).pipe(Effect.catchAll(() => Effect.void))
+        const stderr = yield* Fiber.join(stderrFiber).pipe(Effect.catchAll(() => Effect.succeed("")))
+        if (stderr && stderr.trim()) {
+          yield* logToConsole(config.char.name, config.role, `stderr: ${stderr.trim().slice(0, 500)}`)
+        }
       }
 
       // Collect accumulated text

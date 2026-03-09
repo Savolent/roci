@@ -14,6 +14,8 @@ export interface TurnConfig {
   char: CharacterConfig
   /** Label for console output (e.g. "brain", "body"). */
   role: "brain" | "body"
+  /** If set, restrict available tools via --allowedTools. */
+  allowedTools?: string[]
 }
 
 /** Result of a completed (or timed-out) turn. */
@@ -38,6 +40,8 @@ export interface CycleConfig {
   char: CharacterConfig
   /** Called before each cycle to generate the brain's input prompt (state summary, etc.) */
   buildBrainPrompt: () => string
+  /** If set, restrict the brain's available tools via --allowedTools. */
+  brainAllowedTools?: string[]
 }
 
 /** Result of a full brain/body cycle. */
