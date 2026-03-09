@@ -19,6 +19,8 @@ export interface Issue {
   body: string
   commentCount: number
   recentComments: IssueComment[]
+  milestone: string | null
+  reactionCount: number
 }
 
 export interface PullRequestReview {
@@ -33,11 +35,20 @@ export interface PullRequest {
   author: string
   draft: boolean
   headSha: string
+  headBranch: string
+  baseBranch: string
+  body: string
   checks: "pending" | "passing" | "failing"
+  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
+  mergeStateStatus: "BEHIND" | "BLOCKED" | "CLEAN" | "DIRTY" | "DRAFT" | "HAS_HOOKS" | "UNKNOWN" | "UNSTABLE"
   reviewStatus: "none" | "approved" | "changes_requested" | "review_required"
   reviews: PullRequestReview[]
   requestedReviewers: string[]
   createdAt: string
+  changedFiles: number
+  additions: number
+  deletions: number
+  recentComments: IssueComment[]
 }
 
 // =====================================================

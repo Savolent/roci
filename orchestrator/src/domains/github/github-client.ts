@@ -59,6 +59,8 @@ query RepoState($owner: String!, $repo: String!) {
         body
         labels(first: 10) { nodes { name } }
         assignees(first: 10) { nodes { login } }
+        milestone { title }
+        reactions { totalCount }
         comments(last: 3) {
           totalCount
           nodes {
@@ -77,12 +79,27 @@ query RepoState($owner: String!, $repo: String!) {
         isDraft
         createdAt
         headRefOid
+        headRefName
+        baseRefName
+        body
+        mergeable
+        mergeStateStatus
+        changedFiles
+        additions
+        deletions
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } } } }
         reviews(last: 10) {
           nodes {
             author { login }
             state
             submittedAt
+          }
+        }
+        comments(last: 3) {
+          nodes {
+            author { login }
+            createdAt
+            body
           }
         }
         commits(last: 1) {
@@ -213,6 +230,8 @@ const fetchRepoState = (owner: string, repo: string, token: string) =>
         body: (i.body ?? "").slice(0, 500),
         commentCount: i.comments.totalCount ?? 0,
         recentComments,
+        milestone: i.milestone?.title ?? null,
+        reactionCount: i.reactions?.totalCount ?? 0,
       }
     })
 
@@ -240,13 +259,25 @@ const fetchRepoState = (owner: string, repo: string, token: string) =>
         checks = deriveChecksFromRollup(contexts)
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const recentComments: IssueComment[] = (pr.comments?.nodes ?? []).map((c: any) => ({
+        author: c.author?.login ?? "unknown",
+        createdAt: c.createdAt,
+        body: (c.body ?? "").slice(0, 300),
+      }))
+
       return {
         number: pr.number,
         title: pr.title,
         author: pr.author?.login ?? "unknown",
         draft: pr.isDraft ?? false,
         headSha: pr.headRefOid ?? "",
+        headBranch: pr.headRefName ?? "",
+        baseBranch: pr.baseRefName ?? "",
+        body: (pr.body ?? "").slice(0, 1000),
         checks,
+        mergeable: (pr.mergeable ?? "UNKNOWN") as PullRequest["mergeable"],
+        mergeStateStatus: (pr.mergeStateStatus ?? "UNKNOWN") as PullRequest["mergeStateStatus"],
         reviewStatus: deriveReviewStatus(reviews),
         reviews,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -255,6 +286,10 @@ const fetchRepoState = (owner: string, repo: string, token: string) =>
           .map((rr: any) => rr.requestedReviewer?.login)
           .filter(Boolean) as string[],
         createdAt: pr.createdAt,
+        changedFiles: pr.changedFiles ?? 0,
+        additions: pr.additions ?? 0,
+        deletions: pr.deletions ?? 0,
+        recentComments,
       }
     })
 
