@@ -29,13 +29,6 @@ function buildStateSummary(state: GameState, situation: Situation): string {
     `Cargo: ${ship.cargo_used}/${ship.cargo_capacity}`,
   ]
 
-  if (situation.alerts.length > 0) {
-    lines.push("Alerts:")
-    for (const a of situation.alerts) {
-      lines.push(`  [${a.priority}] ${a.message}`)
-    }
-  }
-
   if (state.nearby.length > 0) {
     lines.push(`Nearby: ${state.nearby.map((p: { username: string }) => p.username).join(", ")}`)
   }

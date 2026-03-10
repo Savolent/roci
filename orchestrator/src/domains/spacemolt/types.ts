@@ -294,7 +294,6 @@ export interface Alert {
 export interface Situation {
 	type: SituationType;
 	flags: SituationFlags;
-	alerts: Alert[];
 }
 
 // =====================================================

@@ -13,7 +13,7 @@ const LOW_HULL_THRESHOLD = 0.5;
 export function classifySituation(state: GameState): Situation {
 	const type = classifyType(state);
 	const flags = deriveFlags(state);
-	return { type, flags, alerts: [] }; // Alerts added separately by alerts.ts
+	return { type, flags };
 }
 
 function classifyType(state: GameState): SituationType {

@@ -469,8 +469,8 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
             return
           }
 
-          if (tag === "Heartbeat") {
-            const tick = (result.category as { _tag: "Heartbeat"; tick: number }).tick
+          if (result.category && result.category._tag === "Heartbeat") {
+            const tick = result.category.tick
             yield* Ref.set(tickCountRef, tick)
             yield* handleTickEvent(tick)
             return

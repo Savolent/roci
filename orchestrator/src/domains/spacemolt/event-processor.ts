@@ -48,12 +48,10 @@ const spaceMoltEventProcessor: EventProcessor = {
       case "combat_update": {
         const { payload } = smEvent
         return {
-          category: { _tag: "StateChange" },
-          context: {
-            chatMessages: [],
-          },
           log: () => {
-            // Console logging handled by the state machine's interrupt path
+            // Combat updates are informational — the actual inCombat flag
+            // is set by the subsequent state_update event, and the in_combat
+            // InterruptRule fires then.
           },
         }
       }

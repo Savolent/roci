@@ -3,7 +3,6 @@ import type {
 	GameState,
 	Situation,
 	CargoItem,
-	Alert,
 	PlayerOrder,
 	StorageItem,
 	SystemState,
@@ -332,27 +331,6 @@ function formatStorageSummary(items: StorageItem[], credits: number): string | n
 	}
 	if (items.length > 10) parts.push(`and ${items.length - 10} more`);
 	return `Station storage: ${parts.join(", ")}`;
-}
-
-/**
- * Formats alerts into a string for the system prompt.
- */
-export function formatAlerts(alerts: Alert[]): string {
-	if (alerts.length === 0) return "";
-
-	return alerts
-		.map((a) => {
-			const icon =
-				a.priority === "critical"
-					? "!!!"
-					: a.priority === "high"
-						? "!!"
-						: a.priority === "medium"
-							? "!"
-							: "-";
-			return `${icon} ${a.message}`;
-		})
-		.join("\n");
 }
 
 /**
