@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect"
-import type { ContextHandler, ProcessedContext } from "../../core/limbic/amygdala/context-handler.js"
-import { ContextHandlerTag } from "../../core/limbic/amygdala/context-handler.js"
+import type { ContextHandler, ProcessedContext } from "../../core/limbic/thalamus/context-handler.js"
+import { ContextHandlerTag } from "../../core/limbic/thalamus/context-handler.js"
 import type { CharacterConfig } from "../../services/CharacterFs.js"
 import { CharacterLog } from "../../logging/log-writer.js"
 import { logToConsole } from "../../logging/console-renderer.js"

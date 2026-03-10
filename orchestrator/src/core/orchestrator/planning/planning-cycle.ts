@@ -7,7 +7,7 @@ import { logToConsole } from "../../../logging/console-renderer.js"
 import type { DomainState, DomainSituation } from "../../domain-types.js"
 import type { StateRenderer } from "../../state-renderer.js"
 import type { BrainMode, Plan, StepTiming, Alert } from "../../types.js"
-import type { LifecycleHooks, PlanContext } from "../amygdala/lifecycle.js"
+import type { LifecycleHooks, PlanContext } from "../lifecycle.js"
 import { brainPlan } from "./brain.js"
 
 export interface PlanningRefs {

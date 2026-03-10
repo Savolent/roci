@@ -12,12 +12,12 @@ import { Docker } from "../../services/Docker.js"
 import { CharacterFs } from "../../services/CharacterFs.js"
 import { logToConsole } from "../../logging/console-renderer.js"
 import { CharacterLog } from "../../logging/log-writer.js"
-import { EventProcessorTag } from "../../core/limbic/amygdala/event-source.js"
+import { EventProcessorTag } from "../../core/limbic/thalamus/event-processor.js"
 import { InterruptRegistryTag } from "../../core/limbic/amygdala/interrupt.js"
-import { SituationClassifierTag } from "../../core/limbic/amygdala/situation.js"
+import { SituationClassifierTag } from "../../core/limbic/thalamus/situation-classifier.js"
 import { GitHubClientTag } from "./github-client.js"
 import { dream } from "../../core/limbic/hippocampus/dream.js"
-import { runCycle } from "../../core/limbic/hypothalamus/scheduler.js"
+import { runCycle } from "../../core/limbic/hypothalamus/cycle-runner.js"
 import { renderStateSummary } from "./prompt-helpers.js"
 import { Claude } from "../../services/Claude.js"
 
@@ -223,9 +223,8 @@ const startupPhase = {
  *
  * Each cycle:
  *   1. Drain pending events and update state
- *   2. Build a brain prompt from current state, diary, and recent body reports
+ *   2. Build a brain prompt from current state, identity, values, and diary
  *   3. Run a brain/body cycle via the hypervisor scheduler
- *   4. Store body output as a timestamped report in the container
  */
 const activePhase = {
   name: "active",
@@ -271,11 +270,6 @@ const activePhase = {
         containerId: context.containerId,
       })
 
-      // Ensure reports directory exists in the container
-      yield* docker.exec(context.containerId, [
-        "mkdir", "-p", `/work/players/${context.char.name}/reports`,
-      ]).pipe(Effect.catchAll(() => Effect.void))
-
       for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
         // Drain pending events and update state
         let drained = false
@@ -314,23 +308,6 @@ const activePhase = {
         // Read character diary
         const diary = yield* charFs.readDiary(context.char)
 
-        // Read recent reports from container
-        const reportsListing = yield* docker.exec(context.containerId, [
-          "sh", "-c", `ls -t /work/players/${context.char.name}/reports/ 2>/dev/null | head -5`,
-        ]).pipe(Effect.catchAll(() => Effect.succeed("")))
-
-        let recentReports = ""
-        if (reportsListing.trim()) {
-          for (const file of reportsListing.trim().split("\n").slice(0, 3)) {
-            const content = yield* docker.exec(context.containerId, [
-              "cat", `/work/players/${context.char.name}/reports/${file}`,
-            ]).pipe(Effect.catchAll(() => Effect.succeed("")))
-            if (content.trim()) {
-              recentReports += `\n### Report: ${file}\n${content.trim().slice(0, 2000)}\n`
-            }
-          }
-        }
-
         const buildBrainPrompt = () => {
           const parts = [
             `# Current State\n\n${brainPromptParts.stateSummary}`,
@@ -342,9 +319,6 @@ const activePhase = {
             parts.push(`\n\n# Your Values\n\n${values}`)
           }
           parts.push(`\n\n# Diary\n\n${diary.slice(-3000)}`)
-          if (recentReports) {
-            parts.push(`\n\n# Recent Body Reports\n${recentReports}`)
-          }
           return parts.join("")
         }
 
@@ -369,18 +343,6 @@ const activePhase = {
             "Edit",
           ],
         })
-
-        // Store body output as a timestamped report
-        const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-        const reportPath = `/work/players/${context.char.name}/reports/${timestamp}.md`
-        const reportContent = cycleResult.bodyResult.output || "(no output)"
-        yield* docker.exec(context.containerId, [
-          "sh", "-c", `printf '%s' ${JSON.stringify(reportContent).slice(0, 4000)} > ${reportPath}`,
-        ]).pipe(
-          Effect.catchAll((e) =>
-            logToConsole(context.char.name, "orchestrator", `Failed to write report: ${e}`)
-          ),
-        )
 
         yield* logToConsole(
           context.char.name,

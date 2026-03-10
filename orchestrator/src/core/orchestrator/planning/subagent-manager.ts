@@ -9,11 +9,11 @@ import {
   formatError,
 } from "../../../logging/console-renderer.js"
 import type { SkillRegistry } from "../../skill.js"
-import type { SituationClassifier } from "../amygdala/situation.js"
+import type { SituationClassifier } from "../../limbic/thalamus/situation-classifier.js"
 import type { StateRenderer } from "../../state-renderer.js"
 import type { DomainState, DomainSituation } from "../../domain-types.js"
 import type { BrainMode, Plan, StepCompletionResult } from "../../types.js"
-import type { LifecycleHooks } from "../amygdala/lifecycle.js"
+import type { LifecycleHooks } from "../lifecycle.js"
 import type { TimingRefs } from "./step-tracker.js"
 import { recordStepTiming, recordStepOutcome } from "./step-tracker.js"
 import { brainEvaluate } from "./brain.js"

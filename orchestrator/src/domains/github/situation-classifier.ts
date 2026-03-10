@@ -1,6 +1,6 @@
 import { Layer } from "effect"
-import type { SituationClassifier } from "../../core/limbic/amygdala/situation.js"
-import { SituationClassifierTag } from "../../core/limbic/amygdala/situation.js"
+import type { SituationClassifier } from "../../core/limbic/thalamus/situation-classifier.js"
+import { SituationClassifierTag } from "../../core/limbic/thalamus/situation-classifier.js"
 import type { GitHubState, GitHubSituation, GitHubSituationType, RepoState, RepoSituation } from "./types.js"
 
 const STALE_PR_DAYS = 7
