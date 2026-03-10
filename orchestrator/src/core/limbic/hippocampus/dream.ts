@@ -17,12 +17,23 @@ export interface DreamOutput {
   secretsCompressed: boolean
 }
 
-function selectDreamType(secretsLineCount: number): DreamType {
-  const nightmareChance = Math.min(secretsLineCount / 6, 15)
+interface DreamTypeSelection {
+  dreamType: DreamType
+  roll: number
+  nightmareThreshold: number
+  goodThreshold: number
+  secretsLineCount: number
+}
+
+function selectDreamType(secretsLineCount: number): DreamTypeSelection {
+  const nightmareThreshold = Math.min(secretsLineCount / 6, 15)
   const roll = Math.floor(Math.random() * 100)
-  if (roll < nightmareChance) return "nightmare"
-  if (roll >= 94) return "good"
-  return "normal"
+  const goodThreshold = 94
+  let dreamType: DreamType
+  if (roll < nightmareThreshold) dreamType = "nightmare"
+  else if (roll >= goodThreshold) dreamType = "good"
+  else dreamType = "normal"
+  return { dreamType, roll, nightmareThreshold, goodThreshold, secretsLineCount }
 }
 
 const PROMPTS_DIR = path.resolve(import.meta.dirname, "prompts")
@@ -52,7 +63,20 @@ export const dream = {
       const background = yield* charFs.readBackground(input.char)
 
       const secretsLines = secrets.split("\n").filter((l) => l.trim()).length
-      const dreamType = selectDreamType(secretsLines)
+      const selection = selectDreamType(secretsLines)
+      const { dreamType } = selection
+
+      yield* log.thought(input.char, {
+        timestamp: new Date().toISOString(),
+        source: "dream",
+        character: input.char.name,
+        type: "dream_type_selection",
+        dreamType,
+        roll: selection.roll,
+        nightmareThreshold: selection.nightmareThreshold,
+        goodThreshold: selection.goodThreshold,
+        secretsLineCount: selection.secretsLineCount,
+      })
 
       yield* log.thought(input.char, {
         timestamp: new Date().toISOString(),
@@ -75,6 +99,17 @@ export const dream = {
 
       yield* charFs.writeDiary(input.char, compressedDiary)
 
+      yield* log.thought(input.char, {
+        timestamp: new Date().toISOString(),
+        source: "dream",
+        character: input.char.name,
+        type: "dream_diary_compressed",
+        dreamType,
+        originalLength: diary.length,
+        compressedLength: compressedDiary.length,
+        content: compressedDiary.slice(0, 2000),
+      })
+
       // 2. Compress secrets
       const secretsPrompt = yield* loadTemplate(path.join(PROMPTS_DIR, secretsTemplateFile[dreamType]))
       const secretsInput = `${secretsPrompt}\n\n<context name="background">\n${background}\n</context>\n\n<context name="diary">\n${compressedDiary}\n</context>\n\n${secrets}`
@@ -87,6 +122,17 @@ export const dream = {
       })
 
       yield* charFs.writeSecrets(input.char, compressedSecrets)
+
+      yield* log.thought(input.char, {
+        timestamp: new Date().toISOString(),
+        source: "dream",
+        character: input.char.name,
+        type: "dream_secrets_compressed",
+        dreamType,
+        originalLength: secrets.length,
+        compressedLength: compressedSecrets.length,
+        content: compressedSecrets.slice(0, 2000),
+      })
 
       yield* log.thought(input.char, {
         timestamp: new Date().toISOString(),

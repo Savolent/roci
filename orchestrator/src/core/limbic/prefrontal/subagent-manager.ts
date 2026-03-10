@@ -69,6 +69,20 @@ export const evaluateCompletedSubagent = (
     if (plan && step < plan.steps.length) {
       const currentStep = plan.steps[step]
       const timing = yield* recordStepTiming(timingRefs, currentStep.task, currentStep.goal, currentStep.timeoutTicks)
+
+      yield* log.thought(services.char, {
+        timestamp: new Date().toISOString(),
+        source: "monitor",
+        character: services.char.name,
+        type: "step_timing",
+        stepIndex: step,
+        task: timing.task,
+        goal: timing.goal,
+        ticksConsumed: timing.ticksConsumed,
+        ticksBudgeted: timing.ticksBudgeted,
+        overrun: timing.overrun,
+      }).pipe(Effect.catchAll(() => Effect.void))
+
       const report = yield* Ref.get(subagentRefs.report)
 
       // Build state diff from spawn-time snapshot

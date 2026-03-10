@@ -323,6 +323,27 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
         const criticals = allAlerts.filter(a => a.priority === "critical")
         const softAlerts = allAlerts.filter(a => a.priority !== "critical")
 
+        // Log evaluation results when any rules fired
+        if (allAlerts.length > 0) {
+          yield* log.thought(config.char, {
+            timestamp: new Date().toISOString(),
+            source: "monitor",
+            character: config.char.name,
+            type: "interrupt_evaluation",
+            rulesEvaluated: interrupts.rules.length,
+            rulesFired: allAlerts.length,
+            criticalCount: criticals.length,
+            softCount: softAlerts.length,
+            suppressedTask: currentTask ?? null,
+            alerts: allAlerts.map(a => ({
+              ruleName: a.ruleName,
+              priority: a.priority,
+              message: a.message,
+              suggestedAction: a.suggestedAction,
+            })),
+          }).pipe(Effect.catchAll(() => Effect.void))
+        }
+
         // Critical → hard interrupt
         if (criticals.length > 0) {
           yield* handleInterrupt(criticals, state, situation, briefing)
