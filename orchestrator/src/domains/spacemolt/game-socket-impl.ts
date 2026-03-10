@@ -29,6 +29,7 @@ async function fetchHealthTick(): Promise<number | null> {
 export class GameSocketError {
   readonly _tag = "GameSocketError"
   constructor(readonly message: string, readonly cause?: unknown) {}
+  toString() { return this.message }
 }
 
 export interface GameSocketConnection {

@@ -14,6 +14,7 @@ export interface LogEntry {
 export class LogWriterError {
   readonly _tag = "LogWriterError"
   constructor(readonly message: string, readonly cause?: unknown) {}
+  toString() { return this.message }
 }
 
 export class CharacterLog extends Context.Tag("CharacterLog")<

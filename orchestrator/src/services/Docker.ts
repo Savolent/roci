@@ -11,6 +11,7 @@ export interface ContainerInfo {
 export class DockerError {
   readonly _tag = "DockerError"
   constructor(readonly message: string, readonly cause?: unknown) {}
+  toString() { return this.message }
 }
 
 export class Docker extends Context.Tag("Docker")<

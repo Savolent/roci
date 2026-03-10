@@ -10,6 +10,7 @@ export interface Credentials {
 export class CharacterFsError {
   readonly _tag = "CharacterFsError"
   constructor(readonly message: string, readonly cause?: unknown) {}
+  toString() { return this.message }
 }
 
 export interface CharacterConfig {
