@@ -1,41 +1,192 @@
 # Agent Harness
 
-The harness runs autonomous SpaceMolt game sessions inside a shared Docker container, using Claude Code as the agent runtime. An orchestrator on the host manages the game loop: connect via WebSocket, plan with a brain LLM, dispatch subagents into the container, and capture all output.
+The harness runs autonomous character-driven sessions inside a shared Docker container, using Claude Code as the agent runtime. An orchestrator on the host manages the session lifecycle: connect to a domain, run brain/body or plan/act/evaluate cycles, and capture all output.
 
 ## Architecture
 
 ```
 cli.ts
- └─ runOrchestrator(configs[], domain)              pipeline/orchestrator.ts
-     ├─ ensureSharedContainer()                      Start/reuse Docker container
-     └─ for each character: fork characterLoop()     pipeline/character-loop.ts
-         └─ runPhases(context, phaseRegistry)         core/phase-runner.ts
-             ├─ startup: connect WS, dream if needed  domains/spacemolt/phases.ts
-             ├─ active: eventLoop(config)              monitor/event-loop.ts
-             │   └─ runStateMachine(config)            core/state-machine.ts
-             │       ├─ initial planning + spawn
-             │       └─ { event loop }
-             ├─ social: dinner reflection
-             └─ reflection: dream, loop → active
+ +-- runOrchestrator(configs[], domain)              pipeline/orchestrator.ts
+     +-- ensureSharedContainer()                      Start/reuse Docker container
+     +-- for each character: fork characterLoop()     pipeline/character-loop.ts
+         +-- runPhases(context, phaseRegistry)         core/phase-runner.ts
+             +-- Phase: startup, active, break/social, reflection
+                 +-- runStateMachine() or runHypervisor()
 ```
+
+### Limbic System
+
+Domain-agnostic subsystems live under `core/limbic/`, organized by analogy to limbic brain regions:
+
+```
+core/limbic/
+ +-- thalamus/         Sensory relay: event processing, situation classification
+ |   +-- event-processor.ts    EventProcessor, EventResult, EventCategory
+ |   +-- situation-classifier.ts   SituationClassifier, SituationSummary
+ +-- amygdala/         Threat detection: interrupt evaluation and alerting
+ |   +-- interrupt.ts  InterruptRule, InterruptRegistry, createInterruptRegistry()
+ +-- hypothalamus/     Homeostatic regulation: timing, cycle execution
+ |   +-- tempo.ts      TempoConfig (StateMachineTempo | HypervisorTempo)
+ |   +-- cycle-runner.ts   runCycle (brain/body turn pair)
+ |   +-- process-runner.ts runTurn (claude -p in container)
+ |   +-- timeout-summarizer.ts
+ +-- hippocampus/      Memory consolidation: dream compression
+     +-- dream.ts      dream.execute() -- diary + secrets compression via Opus
+```
+
+**Thalamus** -- `EventProcessor` translates raw domain events into `EventResult`, which uses a discriminated union `EventCategory`:
+
+```typescript
+type EventCategory =
+  | { _tag: "Heartbeat"; tick: number }
+  | { _tag: "StateChange" }
+  | { _tag: "LifecycleReset"; reason: string }
+
+interface EventResult {
+  category?: EventCategory
+  stateUpdate?: (prev: DomainState) => DomainState
+  context?: DomainContext         // e.g. chatMessages
+  log?: () => void
+}
+```
+
+`SituationClassifier` has a single `summarize()` method returning `SituationSummary`:
+
+```typescript
+interface SituationSummary {
+  situation: DomainSituation          // domain-specific enum/type
+  headline: string
+  sections: Array<{ id: string; heading: string; body: string }>
+  metrics: Record<string, string | number | boolean>
+}
+```
+
+**Amygdala** -- `InterruptRegistry` evaluates declarative `InterruptRule`s against current state + situation. Rules have a priority (`critical | high | medium | low`), a condition function, a message function, and optional `suppressWhenTaskIs` for deduplication. Critical alerts trigger immediate replanning; soft alerts accumulate and feed into the next brain prompt.
+
+**Hypothalamus** -- `TempoConfig` is a discriminated union governing cycle timing:
+
+```typescript
+interface StateMachineTempo extends TempoBase {
+  _tag: "StateMachine"
+  maxTurns: number
+}
+
+interface HypervisorTempo extends TempoBase {
+  _tag: "Hypervisor"
+  maxCycles: number
+  breakDurationMs: number
+  breakPollIntervalSec: number
+}
+```
+
+`runCycle` runs a single brain/body turn pair: build brain prompt, run brain (Opus) with timeout, run body (Sonnet) with brain output as prompt, summarize on timeout.
+
+**Hippocampus** -- `dream.execute()` compresses diary and secrets via Opus. Dream type is probabilistic (normal/good/nightmare), selected based on secrets line count.
 
 ### Domain Services
 
-The state machine is domain-agnostic. All domain knowledge is injected via 7 Effect service layers, provided in `event-loop.ts`. See `domains/DOMAIN_GUIDE.md` for full documentation on building new domains.
+All domain knowledge is injected via 6 Effect service layers, provided as a `DomainBundle`. See `domains/DOMAIN_GUIDE.md` for full documentation.
 
 | Service | Tag | Role |
 |---------|-----|------|
-| **SituationClassifier** | `SituationClassifierTag` | `classify(state)` → structured situation; `briefing()` → human-readable context |
+| **EventProcessor** | `EventProcessorTag` | Maps raw domain events to `EventResult` with `EventCategory` discriminated union |
+| **SituationClassifier** | `SituationClassifierTag` | `summarize(state)` -- structured `SituationSummary` with headline, sections, metrics |
 | **InterruptRegistry** | `InterruptRegistryTag` | Declarative interrupt rules with priority, condition, message, `suppressWhenTaskIs` |
-| **SkillRegistry** | `SkillRegistryTag` | Step completion logic — currently a no-op stub (all completion falls through to LLM evaluator) |
 | **StateRenderer** | `StateRendererTag` | Snapshots, rich snapshots, diffs, console state bar |
-| **PromptBuilder** | `PromptBuilderTag` | Assembles all LLM prompts (plan, interrupt, evaluate, subagent) |
-| **EventProcessor** | `EventProcessorTag` | Maps raw WS events to state updates, interrupts, ticks |
-| **ContextHandler** | `ContextHandlerTag` | Processes accumulated WS context (chat, combat, death, errors) into structured output |
+| **PromptBuilder** | `PromptBuilderTag` | Assembles all LLM prompts (plan, interrupt, evaluate, subagent, brainPrompt) |
+| **SkillRegistry** | `SkillRegistryTag` | Step completion logic -- task types, instructions, deterministic checks |
 
-### Adding an interrupt rule
+### Phase System
 
-Add to the rules array in `domains/spacemolt/interrupts.ts`:
+Sessions progress through a sequence of named phases. Each phase returns a `PhaseResult`: `Continue` (with next phase name), `Restart`, or `Shutdown`. The phase runner drives the sequence.
+
+`PhaseContext` carries the character config, container ID, container env, an optional `ConnectionState` (event queue + initial state), optional `phaseData` for inter-phase threading, and the `DomainBundle`.
+
+`PhaseRegistry` lists available phases and identifies the initial phase.
+
+## Execution Engines
+
+### runStateMachine -- Plan/Act/Evaluate
+
+Used by SpaceMolt. Reads events from a queue, drives a brain + subagent cycle with planning, execution, and evaluation steps.
+
+```
+Queue.take(event)
+ |
+ v
+eventProcessor.processEvent(event, state) --> EventResult
+ +-- apply stateUpdate
+ +-- run log side effect
+ +-- accumulate context (chat messages)
+ |
+ v
+dispatch on EventCategory:
+ +-- LifecycleReset --> kill subagent, clear plan, reset mode
+ +-- StateChange   --> { decision cycle }
+ +-- Heartbeat     --> { tick cycle }
+```
+
+**Decision cycle** (on StateChange):
+
+```
+classifier.summarize(state)
+ |
+interrupts.evaluate(state, situation, currentTask)
+ +-- criticals --> kill subagent, brainInterrupt --> new Plan
+ +-- soft alerts --> accumulate for next brain prompt
+ |
+poll subagent fiber
+ +-- done --> evaluateCompletedSubagent --> step++ or clear plan
+ |
+maybeRequestPlan   (no plan, no subagent)
+ +-- reads diary, background, values
+ +-- brainPlan.execute() --> LLM --> Plan{steps[]}
+ |
+maybeSpawnSubagent  (plan exists, no fiber)
+ +-- runGenericSubagent() --> Docker exec --> Claude Code
+```
+
+**Tick cycle** (on Heartbeat):
+
+```
+checkMidRun   (timeout exceeded --> kill fiber, step++)
+poll subagent fiber (done --> evaluate)
+planAndSpawn
+```
+
+The state machine supports lifecycle hooks (`shouldExit`, `onInterrupt`, `onReset`, `onProcedureComplete`) and an exit signal deferred for clean shutdown.
+
+### runHypervisor -- Brain/Body Cycles
+
+Used by GitHub. Runs up to `maxCycles` brain/body cycles per active phase. Consumes 5 of 6 domain services (not SkillRegistry).
+
+```
+for cycle in 0..maxCycles:
+  1. Drain event queue, apply state updates
+  2. classifier.summarize(state)
+  3. renderer.logStateBar() + stateDiff from previous cycle
+  4. interrupts.evaluate() --> critical? return Interrupted
+  5. Read identity (background, values, diary)
+  6. promptBuilder.brainPrompt({summary, diary, background, values, cycle, softAlerts, stateDiff})
+  7. runCycle():
+     a. Brain (Opus, 8 min timeout) --> directives
+     b. Body (Sonnet, 15 min timeout) receives brain output as prompt
+  8. Update snapshot for next cycle's diff
+
+Returns: Completed{finalState, cyclesRun} | Interrupted{finalState, cyclesRun, criticals}
+```
+
+### runBreak
+
+Sleeps for `breakDurationMs`, polling the event queue every `breakPollIntervalSec`. On each state change, evaluates interrupt rules. If a critical fires, returns `Interrupted` early. Otherwise returns `Completed`.
+
+### runReflection
+
+Checks diary line count against `dreamThreshold`. If exceeded, calls `dream.execute()` to compress diary and secrets.
+
+## Adding an Interrupt Rule
+
+Add to the rules array in `domains/<domain>/interrupts.ts`:
 
 ```typescript
 { name: "fuel_emergency", priority: "critical",
@@ -44,175 +195,61 @@ Add to the rules array in `domains/spacemolt/interrupts.ts`:
   suppressWhenTaskIs: "refuel" }
 ```
 
-### { event loop }
+`createInterruptRegistry(rules)` builds an `InterruptRegistry` that handles rule walking, suppression, sorting, and partitioning into `criticals()` and `softAlerts()`.
 
-Runs forever, one iteration per event from the WS queue.
+## Domain Comparison
 
-```
-Queue.take(event)
- │
- ▼
-eventProcessor.processEvent(event, state) → EventResult
- ├─ apply stateUpdate to gameStateRef
- ├─ update tickCountRef
- ├─ run log side effect
- ├─ accumulate chat/combat context
- │
- ▼
-dispatch on result flags:
- ├─ isReset ─────► handleReset: kill subagent, clear plan
- ├─ isInterrupt ─► { handle interrupt }
- └─ isTick/isStateUpdate ─► { handle heartbeat }
-```
-
-### { handle interrupt }
-
-```
-killSubagent
- └─ brainInterrupt.execute()
-     └─ promptBuilder.interruptPrompt() → LLM → new Plan
-```
-
-### { handle heartbeat }
-
-Runs on both tick and state_update events.
-
-```
-interrupts.criticals(state, situation, currentTask)
- ├─ if criticals → { handle interrupt }
- │
-checkMidRun()
- └─ skills.isStepComplete() (stub: always falls through)
-     └─ timeout exceeded → kill fiber, step++
- │
-poll subagent fiber
- ├─ if done → { evaluate completed subagent }
- │
-{ maybe request plan }
- └─ { maybe spawn subagent }
-```
-
-### { evaluate completed subagent }
-
-```
-Build diff: renderer.richSnapshot() before vs after
-brainEvaluate.execute()
- └─ promptBuilder.evaluatePrompt() → LLM → {complete, reason}
-     ├─ complete → step++
-     └─ failed → clear plan, set previousFailure
-```
-
-### { maybe request plan }
-
-Only runs if no plan and no subagent.
-
-```
-Read diary, background, values
-brainPlan.execute()
- └─ promptBuilder.planPrompt()
-     (includes stepTimingHistory with outcomes + diffs)
-     → LLM → Plan{steps[]}
-```
-
-### { maybe spawn subagent }
-
-Only runs if plan exists and no fiber running.
-
-```
-Save spawnStateRef (renderer.richSnapshot())
-runGenericSubagent()                              core/subagent.ts
- └─ promptBuilder.subagentPrompt()
-     → claude.execInContainer()
-         → Docker exec → Claude Code in shared container
-     → fork as Fiber, streams output back
-```
+| | SpaceMolt | GitHub |
+|---|-----------|--------|
+| **Engine** | `runStateMachine` (plan/act/evaluate per event) | `runHypervisor` (up to 3 brain/body cycles per active phase) |
+| **Phases** | startup, active, social, reflection | startup, active, break, reflection |
+| **Brain** | Opus plans steps, Haiku/Sonnet executes each step | Opus writes directives, Sonnet executes full session |
+| **Polling** | WebSocket events | Single GraphQL query per repo per poll |
+| **Interrupts** | Evaluated on every state change and tick | Evaluated at start of each cycle + during break |
+| **Reports** | Step timing history + diffs | Body output (brain sees previous cycle results via diary) |
 
 ## Sequence Diagram: Subagent Execution
 
 ```
   Orchestrator          Docker Container          Log Files        Console
   (host)                (roci-crew)
-  │                     │                         │                │
-  │ docker exec -i      │                         │                │
-  │ -e OAUTH_TOKEN=...  │                         │                │
-  │────────────────────►│                         │                │
-  │  stdin: prompt      │                         │                │
-  │                     │ run-step.sh             │                │
-  │                     │ cd /work/players/<name> │                │
-  │                     │ claude -p --stream-json │                │
-  │                     │         │               │                │
-  │                     │         │ $ sm status   │                │
-  │                     │         │─────────► …   │                │
-  │                     │         │◄───────── …   │                │
-  │                     │         │ $ sm market   │                │
-  │                     │         │─────────► …   │                │
-  │                     │         │◄───────── …   │                │
-  │                     │         │ $ sm market …│                │
-  │                     │         │─────────► …   │                │
-  │                     │         │◄───────── …   │                │
-  │                     │         │               │                │
-  │◄════════════════════╡ stdout: stream-json lines                │
-  │  (each line)        │         │               │                │
-  │─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ►│                │
-  │  log.raw(line)      │         │       stream.jsonl (verbatim)  │
-  │                     │         │               │                │
-  │  parseStreamJson(line)        │               │                │
-  │  ├─ ok ──► demuxEvent         │               │                │
-  │  │   │─ assistant:text ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ► │
-  │  │   │                        │               │  [name:assistant:text]
-  │  │   │─ assistant:tool_use ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ► │
-  │  │   │                        │               │  [name:assistant:tool_use]
-  │  │   │─ user:tool_result ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─► │
-  │  │   │                        │               │  [name:user:tool_result]
-  │  │   └─ result ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ► │
-  │  │                            │               │  [name:result] |
-  │  └─ parse fail ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ► │
-  │                               │               │  [name:raw]    |
-  │                               │               │                │
-  │◄════════════════════╡ stream ends             │                │
-  │                     │         │               │                │
-  │  waitForExit        │         │               │                │
-  │  ├─ join stderr fiber         │               │                │
-  │  ├─ get exit code   │         │               │                │
-  │  │                  │         │               │                │
-  │  ├─ exitCode != 0 ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ►│
-  │  │   fail with ClaudeError    │               │  [name:stderr]
-  │  │                  │         │               │  [name:error]
-  │  └─ exitCode == 0   │         │               │                │
-  │     return text     │         │               │                │
-  │                     │         │               │                │
+  |                     |                         |                |
+  | docker exec -i      |                         |                |
+  | -e OAUTH_TOKEN=...  |                         |                |
+  |-------------------->|                         |                |
+  |  stdin: prompt      |                         |                |
+  |                     | run-step.sh             |                |
+  |                     | cd /work/players/<name> |                |
+  |                     | claude -p --stream-json |                |
+  |                     |         |               |                |
+  |                     |         | $ sm status   |                |
+  |                     |         |---------> ... |                |
+  |                     |         |<--------- ... |                |
+  |                     |         |               |                |
+  |<====================| stdout: stream-json lines                |
+  |  (each line)        |         |               |                |
+  |- - - - - - - - - - - - - - - - - - - - - - - ->|                |
+  |  log.raw(line)      |         |       stream.jsonl (verbatim)  |
+  |                     |         |               |                |
+  |  parseStreamJson(line)        |               |                |
+  |  +-- ok --> demuxEvent        |               |                |
+  |  |   +-- assistant:text - - - - - - - - - - - - - - - - - - - >|
+  |  |   +-- assistant:tool_use - - - - - - - - - - - - - - - - - >|
+  |  |   +-- user:tool_result - - - - - - - - - - - - - - - - - - >|
+  |  |   +-- result - - - - - - - - - - - - - - - - - - - - - - - >|
+  |  +-- parse fail - - - - - - - - - - - - - - - - - - - - - - - >|
+  |                               |               |  [name:raw]    |
+  |                               |               |                |
+  |<====================| stream ends             |                |
+  |                     |         |               |                |
+  |  waitForExit        |         |               |                |
+  |  +-- join stderr fiber        |               |                |
+  |  +-- get exit code  |         |               |                |
+  |  +-- exitCode != 0 - - - - - - - - - - - - - - - - - - - - - >|
+  |  |   fail with ClaudeError    |               |  [name:error]
+  |  +-- exitCode == 0  |         |               |                |
+  |     return text     |         |               |                |
 ```
-
-## GitHub Domain — Hypervisor Architecture
-
-The GitHub domain does **not** use the state machine event loop. Instead it runs a **hypervisor brain/body cycle** that alternates between planning and execution.
-
-```
-phases.ts
- ├─ startup: read github.json, validate token, clone repos, start poller
- ├─ active: run brain/body cycles (up to 3)
- │   └─ for each cycle:
- │       1. Drain event queue, update state
- │       2. Build brain prompt (state + identity + values + diary + recent reports)
- │       3. Brain (Opus, 8 min timeout) → directives
- │       4. Body (Sonnet, 15 min timeout) receives brain stdout as prompt
- │       5. Store body output as timestamped report
- ├─ break: sleep 90 min, polling for critical interrupts
- └─ reflection: dream to compress diary, loop → active
-```
-
-### Key differences from SpaceMolt
-
-| | SpaceMolt | GitHub |
-|---|-----------|--------|
-| **Loop** | State machine event loop (plan/act/evaluate per event) | Hypervisor brain/body cycle (up to 3 per active phase) |
-| **Brain** | Opus plans steps, Haiku/Sonnet executes each step | Opus writes directives, Sonnet executes full session |
-| **Polling** | WebSocket events | Single GraphQL query per repo per poll (replaces REST) |
-| **Reports** | Step timing history + diffs | Body output stored as per-session reports, fed to next brain cycle |
-
-### Process runner
-
-The process runner (`core/limbic/hypothalamus/process-runner.ts`) runs `claude -p` inside the container. It waits for `process.exitCode` (not stdout drain) to detect completion, then joins the stderr fiber and returns the result.
 
 ## Container Layout
 
@@ -220,8 +257,6 @@ Single shared container `roci-crew`, all characters isolated via `--add-dir`.
 
 **Volume mounts:**
 
-| Host Path | Container Path | Access |
-|-----------|---------------|--------|
 | Host Path | Container Path | Access | Domain |
 |-----------|---------------|--------|--------|
 | `players/` | `/work/players` | RW | Both |
@@ -238,7 +273,7 @@ Single shared container `roci-crew`, all characters isolated via `--add-dir`.
 
 | Path | Purpose |
 |------|---------|
-| `/work/players/<name>/` | CWD — credentials, background, diary, secrets, values |
+| `/work/players/<name>/` | CWD -- credentials, background, diary, secrets, values |
 | `/work/shared/` | Shared workspace, game docs |
 | `/work/sm-cli/` | sm CLI source |
 
@@ -256,7 +291,7 @@ Per character at `players/<name>/logs/`:
 | File | Contents | Written by |
 |------|----------|-----------|
 | `stream.jsonl` | Every raw stdout line, verbatim | `log.raw()` |
-| `thoughts.jsonl` | Assistant text blocks (LLM thinking) | `log.thought()` |
+| `thoughts.jsonl` | Assistant text blocks, dream events, brain decisions | `log.thought()` |
 | `actions.jsonl` | Tool use, tool results, subagent lifecycle | `log.action()` |
 | `words.jsonl` | sm chat/forum commands (social actions) | `log.word()` |
 
@@ -294,62 +329,58 @@ All events printed type-tagged with timestamp and character name:
 
 | File | Role |
 |------|------|
-| `core/state-machine.ts` | Plan/act/evaluate event loop |
-| `core/brain.ts` | Brain functions: plan, interrupt, evaluate (Opus) |
-| `core/subagent.ts` | Build prompt, run in container, handle exit |
-| `core/phase.ts` | Phase, PhaseContext, PhaseResult, PhaseRegistry interfaces |
+| `core/orchestrator/state-machine.ts` | Plan/act/evaluate event loop |
+| `core/orchestrator/hypervisor.ts` | Brain/body cycle engine, runBreak, runReflection |
+| `core/orchestrator/planning/brain.ts` | Brain functions: plan, interrupt, evaluate (Opus) |
+| `core/orchestrator/planning/subagent.ts` | Build prompt, run in container, handle exit |
+| `core/orchestrator/lifecycle.ts` | LifecycleHooks (shouldExit, onInterrupt, onReset) |
+| `core/limbic/thalamus/event-processor.ts` | EventProcessor, EventResult, EventCategory |
+| `core/limbic/thalamus/situation-classifier.ts` | SituationClassifier, SituationSummary |
+| `core/limbic/amygdala/interrupt.ts` | InterruptRule, InterruptRegistry, createInterruptRegistry() |
+| `core/limbic/hypothalamus/tempo.ts` | TempoConfig (StateMachineTempo, HypervisorTempo) |
+| `core/limbic/hypothalamus/cycle-runner.ts` | runCycle -- single brain/body turn pair |
+| `core/limbic/hypothalamus/process-runner.ts` | runTurn -- claude -p in container, exit code detection |
+| `core/limbic/hippocampus/dream.ts` | Dream compression (diary + secrets) |
+| `core/phase.ts` | Phase, PhaseContext, PhaseResult, PhaseRegistry |
 | `core/phase-runner.ts` | Runs phases in sequence, handles Continue/Restart/Shutdown |
-| `core/domain-bundle.ts` | DomainBundle type + DomainConfig interface |
-| `core/lifecycle.ts` | LifecycleHooks (shouldExit, onInterrupt, onReset) |
-| `core/skill.ts` | `Skill` + `SkillRegistry` interface (stub until skills redesign) |
-| `core/interrupt.ts` | `InterruptRule` + `InterruptRegistry` interface + `createInterruptRegistry()` factory |
-| `core/situation.ts` | `SituationClassifier` interface |
-| `core/state-renderer.ts` | `StateRenderer` interface |
-| `core/context-handler.ts` | `ContextHandler` interface |
-| `core/prompt-builder.ts` | `PromptBuilder` interface + prompt context types |
-| `core/event-source.ts` | `EventProcessor` interface |
-| `core/types.ts` | Plan, PlanStep, StepTiming, StepCompletionResult, Alert |
+| `core/domain-bundle.ts` | DomainBundle (6 service layers) + DomainConfig |
+| `core/prompt-builder.ts` | PromptBuilder interface (plan, interrupt, evaluate, subagent, brainPrompt) |
+| `core/state-renderer.ts` | StateRenderer interface |
+| `core/skill.ts` | Skill + SkillRegistry interface |
 
 ### GitHub domain
 
 | File | Role |
 |------|------|
-| `domains/github/phases.ts` | Phase registry: startup, active (brain/body cycles), break, reflection |
+| `domains/github/phases.ts` | Phase registry: startup, active (runHypervisor), break (runBreak), reflection |
+| `domains/github/interrupts.ts` | Declarative interrupt rules (CI failing, review requested, untriaged issues, stale PRs) |
 | `domains/github/github-client.ts` | GraphQL polling, single query per repo, token validation |
-| `domains/github/brain-system-prompt.md` | Brain (Opus) system prompt — identity-injected planner |
-| `domains/github/body-system-prompt.md` | Body (Sonnet) system prompt — execution-focused |
+| `domains/github/brain-system-prompt.md` | Brain (Opus) system prompt |
+| `domains/github/body-system-prompt.md` | Body (Sonnet) system prompt |
 | `domains/github/prompt-helpers.ts` | State summary renderer for brain prompt |
-| `core/limbic/hypothalamus/process-runner.ts` | Run claude in container, exit code detection, stream demux |
-| `core/limbic/hypothalamus/scheduler.ts` | Brain/body cycle orchestration, timeout handling |
-| `core/limbic/hypothalamus/types.ts` | CycleConfig, CycleResult, TurnConfig, TurnResult |
-| `core/limbic/hypothalamus/timeout-summarizer.ts` | Summarize partial output on timeout |
 
 ### SpaceMolt domain
 
 | File | Role |
 |------|------|
 | `domains/spacemolt/config.ts` | DomainConfig factory (mounts, image, setup) |
-| `domains/spacemolt/index.ts` | Domain bundle (all 7 service layers) + `spaceMoltServiceLayer` |
-| `domains/spacemolt/phases.ts` | Phase registry: startup, active, social, reflection |
-| `domains/spacemolt/interrupts.ts` | Declarative interrupt rules via `createInterruptRegistry()` |
-| `domains/spacemolt/situation.ts` | Classify state + generate briefings (alerts delegated to InterruptRegistry) |
+| `domains/spacemolt/index.ts` | Domain bundle (all 6 service layers) |
+| `domains/spacemolt/phases.ts` | Phase registry: startup, active (runStateMachine), social, reflection |
+| `domains/spacemolt/interrupts.ts` | Declarative interrupt rules via createInterruptRegistry() |
+| `domains/spacemolt/situation.ts` | SituationClassifier -- summarize() with structured SituationSummary |
 | `domains/spacemolt/renderer.ts` | State snapshots, diffs, console bar |
-| `domains/spacemolt/prompt-builder.ts` | All LLM prompt assembly; subagents reference `sm --help` for commands |
+| `domains/spacemolt/prompt-builder.ts` | All LLM prompt assembly |
 | `domains/spacemolt/event-processor.ts` | Maps WS GameEvents to EventResults |
-| `domains/spacemolt/context-handler.ts` | Processes chat, combat, death, error context from WS events |
-| `domains/spacemolt/state-renderer.ts` | Underlying snapshot/diff functions |
 | `domains/spacemolt/game-socket-impl.ts` | WebSocket connection, reconnection, event queue |
-| `domains/spacemolt/game-socket.ts` | Re-exports GameSocket tag + types |
 | `domains/DOMAIN_GUIDE.md` | Guide for building new domains |
 
-### Pipeline & services
+### Pipeline and services
 
 | File | Role |
 |------|------|
 | `cli.ts` | CLI commands and service wiring |
 | `pipeline/orchestrator.ts` | Container lifecycle, fork character fibers |
 | `pipeline/character-loop.ts` | Per-character: delegates to phase runner |
-| `monitor/event-loop.ts` | Provides domain service layers, delegates to state machine |
 | `services/Claude.ts` | Host invoke + container exec with stream/exit |
 | `services/ProjectRoot.ts` | Project root path service |
 | `services/CharacterFs.ts` | Character file system operations |
