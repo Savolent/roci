@@ -96,7 +96,7 @@ Template-based prompt generation. Templates are loaded from the `prompts/` direc
 - `evaluatePrompt` -- Renders the `evaluate.md` template with step goal, subagent report, state diff, state snapshot, timing data, and condition check results.
 - `subagentPrompt` -- Renders the `subagent.md` template with task details, game state summary, personality, values, tick budget, and `sm` CLI documentation reference.
 - `systemPrompt` -- Returns the `in-game-claude.md` template, which describes the `sm` CLI and in-game capabilities. Same for all modes and tasks.
-- `brainPrompt` -- Not implemented (throws). SpaceMolt uses the state machine model, not the hypervisor.
+- `brainPrompt` -- Not implemented (throws). SpaceMolt uses the state machine model, not the planned-action model.
 
 ### StateRenderer
 

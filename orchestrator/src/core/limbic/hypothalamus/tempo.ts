@@ -12,11 +12,11 @@ export interface StateMachineTempo extends TempoBase {
   readonly maxTurns: number
 }
 
-export interface HypervisorTempo extends TempoBase {
-  readonly _tag: "Hypervisor"
+export interface PlannedActionTempo extends TempoBase {
+  readonly _tag: "PlannedAction"
   readonly maxCycles: number
   readonly breakDurationMs: number
   readonly breakPollIntervalSec: number
 }
 
-export type TempoConfig = StateMachineTempo | HypervisorTempo
+export type TempoConfig = StateMachineTempo | PlannedActionTempo

@@ -3,8 +3,8 @@ import type { DomainState, DomainSituation } from "./domain-types.js"
 import type { SituationSummary } from "./limbic/thalamus/situation-classifier.js"
 import type { Alert, BrainMode, Plan, PlanStep, StepCompletionResult, StepTiming } from "./types.js"
 
-/** Context for building a hypervisor brain prompt. */
-export interface HypervisorBrainPromptContext {
+/** Context for building a planned-action brain prompt. */
+export interface PlannedActionBrainPromptContext {
   summary: SituationSummary
   diary: string
   background: string
@@ -76,8 +76,8 @@ export interface PromptBuilder {
   subagentPrompt(ctx: SubagentPromptContext): string
   /** Domain-specific system prompt for the subagent container, varying by mode and task. */
   systemPrompt(mode: BrainMode, task: string): string
-  /** Build the brain's input prompt for a hypervisor cycle. */
-  brainPrompt(ctx: HypervisorBrainPromptContext): string
+  /** Build the brain's input prompt for a planned-action cycle. */
+  brainPrompt(ctx: PlannedActionBrainPromptContext): string
 }
 
 /**

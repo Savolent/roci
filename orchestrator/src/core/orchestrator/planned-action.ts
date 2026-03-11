@@ -9,7 +9,7 @@ import { SituationClassifierTag } from "../limbic/thalamus/situation-classifier.
 import { InterruptRegistryTag } from "../limbic/amygdala/interrupt.js"
 import { PromptBuilderTag } from "../prompt-builder.js"
 import { StateRendererTag } from "../state-renderer.js"
-import type { HypervisorTempo } from "../limbic/hypothalamus/tempo.js"
+import type { PlannedActionTempo } from "../limbic/hypothalamus/tempo.js"
 import { runCycle } from "../limbic/hypothalamus/cycle-runner.js"
 import { dream } from "../limbic/hippocampus/dream.js"
 import type { Alert } from "../types.js"
@@ -17,13 +17,13 @@ import { logToConsole } from "../../logging/console-renderer.js"
 
 // ── Types ────────────────────────────────────────────────────
 
-export interface HypervisorConfig {
+export interface PlannedActionConfig {
   char: CharacterConfig
   containerId: string
   containerEnv?: Record<string, string>
   events: Queue.Queue<unknown>
   initialState: unknown
-  tempo: HypervisorTempo
+  tempo: PlannedActionTempo
   brainSystemPrompt: string
   bodySystemPrompt: string
   brainModel: ClaudeModel
@@ -33,7 +33,7 @@ export interface HypervisorConfig {
   brainDisallowedTools?: string[]
 }
 
-export type HypervisorResult =
+export type PlannedActionResult =
   | { readonly _tag: "Completed"; readonly finalState: unknown; readonly cyclesRun: number }
   | { readonly _tag: "Interrupted"; readonly finalState: unknown; readonly cyclesRun: number; readonly criticals: Alert[] }
 
@@ -41,7 +41,7 @@ export interface BreakConfig {
   char: CharacterConfig
   events: Queue.Queue<unknown>
   initialState: unknown
-  tempo: HypervisorTempo
+  tempo: PlannedActionTempo
 }
 
 export type BreakResult =
@@ -146,9 +146,9 @@ export const runBreak = (config: BreakConfig) =>
     }
   })
 
-// ── runHypervisor ────────────────────────────────────────────
+// ── runPlannedAction ────────────────────────────────────────────
 
-export const runHypervisor = (config: HypervisorConfig) =>
+export const runPlannedAction = (config: PlannedActionConfig) =>
   Effect.gen(function* () {
     const eventProcessor = yield* EventProcessorTag
     const classifier = yield* SituationClassifierTag

@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect"
 import type {
   PromptBuilder,
   PlanPromptContext,
-  HypervisorBrainPromptContext,
+  PlannedActionBrainPromptContext,
 } from "../../core/prompt-builder.js"
 import { PromptBuilderTag } from "../../core/prompt-builder.js"
 import type { GameState, Situation } from "./types.js"
@@ -70,8 +70,8 @@ function buildAdditionalSection(additionalContext?: string): string {
 // ── Prompt builder ──────────────────────────────────────────
 
 const makePromptBuilder = (templates: Record<string, string>): Omit<PromptBuilder, "systemPrompt"> => ({
-  brainPrompt(_ctx: HypervisorBrainPromptContext): string {
-    throw new Error("SpaceMolt does not use the hypervisor model")
+  brainPrompt(_ctx: PlannedActionBrainPromptContext): string {
+    throw new Error("SpaceMolt does not use the planned-action model")
   },
 
   planPrompt(ctx) {

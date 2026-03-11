@@ -10,11 +10,11 @@ import { Docker } from "../../services/Docker.js"
 import { logToConsole } from "../../logging/console-renderer.js"
 import { CharacterLog } from "../../logging/log-writer.js"
 import { GitHubClientTag } from "./github-client.js"
-import { runHypervisor, runBreak, runReflection } from "../../core/orchestrator/hypervisor.js"
-import type { HypervisorTempo } from "../../core/limbic/hypothalamus/tempo.js"
+import { runPlannedAction, runBreak, runReflection } from "../../core/orchestrator/planned-action.js"
+import type { PlannedActionTempo } from "../../core/limbic/hypothalamus/tempo.js"
 
-const tempo: HypervisorTempo = {
-  _tag: "Hypervisor",
+const tempo: PlannedActionTempo = {
+  _tag: "PlannedAction",
   tickIntervalSec: 30,
   maxCycles: 3,
   breakDurationMs: 90 * 60 * 1000,
@@ -208,12 +208,12 @@ const startupPhase = {
 }
 
 /**
- * Active phase: run the hypervisor brain/body cycle.
+ * Active phase: run the planned-action brain/body cycle.
  *
  * Each cycle:
  *   1. Drain pending events and update state
  *   2. Build a brain prompt from current state, identity, values, and diary
- *   3. Run a brain/body cycle via the hypervisor scheduler
+ *   3. Run a brain/body cycle via the planned-action scheduler
  */
 const activePhase = {
   name: "active",
@@ -246,7 +246,7 @@ const activePhase = {
         .replace(/\{\{characterName\}\}/g, context.char.name)
         .replace(/\{\{playerName\}\}/g, context.char.name)
 
-      yield* logToConsole(context.char.name, "orchestrator", "Starting hypervisor cycle...")
+      yield* logToConsole(context.char.name, "orchestrator", "Starting planned-action cycle...")
 
       yield* log.action(context.char, {
         timestamp: new Date().toISOString(),
@@ -256,7 +256,7 @@ const activePhase = {
         containerId: context.containerId,
       })
 
-      const result = yield* runHypervisor({
+      const result = yield* runPlannedAction({
         char: context.char,
         containerId: context.containerId,
         containerEnv,

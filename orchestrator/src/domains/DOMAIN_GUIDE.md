@@ -4,9 +4,9 @@ How to build a new domain for the Rocinante orchestrator.
 
 ## What is a Domain?
 
-The orchestrator is a generic engine for running autonomous character-driven sessions. It reads events from a queue, classifies the current situation, and drives agent work cycles. Two execution models are available: a **state machine** (reactive plan/act/evaluate loop) and a **hypervisor** (batch brain/body cycles with breaks). None of this logic knows about any specific game or environment.
+The orchestrator is a generic engine for running autonomous character-driven sessions. It reads events from a queue, classifies the current situation, and drives agent work cycles. Two execution models are available: a **state machine** (reactive plan/act/evaluate loop) and a **planned-action** engine (batch brain/body cycles with breaks). None of this logic knows about any specific game or environment.
 
-A **domain** plugs into this engine by implementing 6 service interfaces (plus a phase registry and config object). The core never imports domain code — services are injected via Effect tags at startup. SpaceMolt (state machine) and GitHub (hypervisor) are the two reference implementations.
+A **domain** plugs into this engine by implementing 6 service interfaces (plus a phase registry and config object). The core never imports domain code — services are injected via Effect tags at startup. SpaceMolt (state machine) and GitHub (planned-action) are the two reference implementations.
 
 ## The 6 Services at a Glance
 
@@ -42,14 +42,14 @@ interface StateMachineTempo {
 }
 ```
 
-### Hypervisor (`runHypervisor`)
+### Planned-Action (`runPlannedAction`)
 
 A batch brain/body cycle: drain pending events, build a brain prompt from state + identity, run a brain session (Opus plans), then a body session (Sonnet executes), repeat for N cycles, then take a break. Used by **GitHub**.
 
-Configured with `HypervisorTempo`:
+Configured with `PlannedActionTempo`:
 ```ts
-interface HypervisorTempo {
-  _tag: "Hypervisor"
+interface PlannedActionTempo {
+  _tag: "PlannedAction"
   tickIntervalSec: number       // heartbeat / polling interval
   maxCycles: number             // brain/body cycles per active phase
   breakDurationMs: number       // rest period between active phases
@@ -293,19 +293,19 @@ This is the hardest service. The methods you need depend on your execution model
 | `subagentPrompt` | Before spawning a subagent | Free-form instructions for the subagent |
 | `systemPrompt` | Container system prompt for each subagent run | Free-form system prompt |
 
-**Hypervisor domains** additionally use:
+**Planned-action domains** additionally use:
 
 | Method | When Called | Expected LLM Response Format |
 |--------|-----------|------------------------------|
-| `brainPrompt` | Each hypervisor cycle, before the brain session | Free-form briefing for the brain |
+| `brainPrompt` | Each planned-action cycle, before the brain session | Free-form briefing for the brain |
 
-The `brainPrompt` receives a `HypervisorBrainPromptContext` with the `SituationSummary`, diary, background, values, cycle number, max cycles, soft alerts, and state diff. It should produce a complete briefing document that the brain session uses to decide what work to direct the body to do.
+The `brainPrompt` receives a `PlannedActionBrainPromptContext` with the `SituationSummary`, diary, background, values, cycle number, max cycles, soft alerts, and state diff. It should produce a complete briefing document that the brain session uses to decide what work to direct the body to do.
 
-State machine domains can stub `brainPrompt` with a throw (it will never be called). Hypervisor domains typically stub the state-machine-only methods (`planPrompt`, `interruptPrompt`, `evaluatePrompt`, `subagentPrompt`) the same way.
+State machine domains can stub `brainPrompt` with a throw (it will never be called). Planned-action domains typically stub the state-machine-only methods (`planPrompt`, `interruptPrompt`, `evaluatePrompt`, `subagentPrompt`) the same way.
 
-See `core/prompt-builder.ts` for the exact context types (`PlanPromptContext`, `InterruptPromptContext`, `EvaluatePromptContext`, `SubagentPromptContext`, `HypervisorBrainPromptContext`).
+See `core/prompt-builder.ts` for the exact context types (`PlanPromptContext`, `InterruptPromptContext`, `EvaluatePromptContext`, `SubagentPromptContext`, `PlannedActionBrainPromptContext`).
 
-The SpaceMolt implementation (`domains/spacemolt/prompt-builder.ts`) is the best reference for state machine prompts. The GitHub implementation (`domains/github/prompt-builder.ts`) is the reference for hypervisor prompts.
+The SpaceMolt implementation (`domains/spacemolt/prompt-builder.ts`) is the best reference for state machine prompts. The GitHub implementation (`domains/github/prompt-builder.ts`) is the reference for planned-action prompts.
 
 ### 7. `SkillRegistry` — Stub or Implement
 
@@ -334,7 +334,7 @@ With a stub, all step completion falls through to the LLM evaluator (`brain.eval
 
 Phases are the top-level session structure. A minimal registry needs at least a startup phase (which connects and returns a `ConnectionState`) and an active phase (which runs the chosen engine).
 
-**Active phases should be thin.** They configure the engine and call it — they should not reimplement orchestration logic. The core engine (`runStateMachine` or `runHypervisor`) handles event draining, state classification, interrupt detection, brain/body execution, and logging.
+**Active phases should be thin.** They configure the engine and call it — they should not reimplement orchestration logic. The core engine (`runStateMachine` or `runPlannedAction`) handles event draining, state classification, interrupt detection, brain/body execution, and logging.
 
 #### State Machine Pattern (SpaceMolt-style)
 
@@ -370,14 +370,14 @@ const activePhase = {
 }
 ```
 
-#### Hypervisor Pattern (GitHub-style)
+#### Planned-Action Pattern (GitHub-style)
 
 ```ts
-import { runHypervisor } from "../../core/orchestrator/hypervisor.js"
-import type { HypervisorTempo } from "../../core/limbic/hypothalamus/tempo.js"
+import { runPlannedAction } from "../../core/orchestrator/planned-action.js"
+import type { PlannedActionTempo } from "../../core/limbic/hypothalamus/tempo.js"
 
-const tempo: HypervisorTempo = {
-  _tag: "Hypervisor",
+const tempo: PlannedActionTempo = {
+  _tag: "PlannedAction",
   tickIntervalSec: 30,
   maxCycles: 3,
   breakDurationMs: 90 * 60 * 1000,
@@ -394,7 +394,7 @@ const activePhase = {
       }
       const conn = context.connection
 
-      const result = yield* runHypervisor({
+      const result = yield* runPlannedAction({
         char: context.char,
         containerId: context.containerId,
         containerEnv: context.containerEnv,
@@ -420,7 +420,7 @@ const activePhase = {
 
 The key pattern in both cases: **`Effect.provide(context.domainBundle)`** — this injects your 6 service layers into the engine so it can access EventProcessor, SituationClassifier, etc.
 
-Hypervisor domains typically add `break` and `reflection` phases alongside `active`. The core provides `runBreak` (polls for critical interrupts during rest) and `runReflection` (dream compression) as reusable building blocks.
+Planned-action domains typically add `break` and `reflection` phases alongside `active`. The core provides `runBreak` (polls for critical interrupts during rest) and `runReflection` (dream compression) as reusable building blocks.
 
 ### 9. `DomainConfig` — Assemble Everything
 
@@ -627,7 +627,7 @@ const activePhase = {
 
 Note: SpaceMolt has a wrapper pattern where `situation.ts` wraps `situation-classifier.ts` and `renderer.ts` wraps `state-renderer.ts`. This is a SpaceMolt organizational choice, not a requirement.
 
-### GitHub (Hypervisor)
+### GitHub (Planned-Action)
 
 | Service | File |
 |---------|------|
@@ -685,10 +685,10 @@ New domain author checklist:
 - [ ] `SituationClassifier` — `summarize()` returns `SituationSummary` with `situation`, `headline`, `sections`, `metrics`
 - [ ] `StateRenderer` — `snapshot()`, `richSnapshot()`, `stateDiff()`, `logStateBar(name, metrics)`
 - [ ] `InterruptRegistry` — rules array + `createInterruptRegistry()` factory
-- [ ] `PromptBuilder` — state machine: `planPrompt`, `interruptPrompt`, `evaluatePrompt`, `subagentPrompt`, `systemPrompt`; hypervisor: `brainPrompt` + `systemPrompt`
+- [ ] `PromptBuilder` — state machine: `planPrompt`, `interruptPrompt`, `evaluatePrompt`, `subagentPrompt`, `systemPrompt`; planned-action: `brainPrompt` + `systemPrompt`
 - [ ] `SkillRegistry` — stub or real implementation
-- [ ] `PhaseRegistry` — at least startup + active phases; active phase calls `runStateMachine()` or `runHypervisor()` with `Effect.provide(context.domainBundle)`
-- [ ] `TempoConfig` — `StateMachineTempo` or `HypervisorTempo` defined for your execution model
+- [ ] `PhaseRegistry` — at least startup + active phases; active phase calls `runStateMachine()` or `runPlannedAction()` with `Effect.provide(context.domainBundle)`
+- [ ] `TempoConfig` — `StateMachineTempo` or `PlannedActionTempo` defined for your execution model
 - [ ] `DomainConfig` — bundle, phaseRegistry, containerMounts, imageName, serviceLayer, dockerfilePath, dockerContext, containerAddDirs
 - [ ] Domain bundle — `Layer.mergeAll(...)` of all 6 service layers
 - [ ] Domain registered in `orchestrator/src/domains/registry.ts`

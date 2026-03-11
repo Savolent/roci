@@ -7,7 +7,7 @@ import type {
   InterruptPromptContext,
   EvaluatePromptContext,
   SubagentPromptContext,
-  HypervisorBrainPromptContext,
+  PlannedActionBrainPromptContext,
 } from "../../core/prompt-builder.js"
 import { PromptBuilderTag } from "../../core/prompt-builder.js"
 import type { GitHubState } from "./types.js"
@@ -582,7 +582,7 @@ const gitHubPromptBuilder: PromptBuilder = {
     return promptFn(task)
   },
 
-  brainPrompt(ctx: HypervisorBrainPromptContext): string {
+  brainPrompt(ctx: PlannedActionBrainPromptContext): string {
     const stateSummary = ctx.summary.sections
       .map(s => `## ${s.heading}\n${s.body}`)
       .join("\n\n")

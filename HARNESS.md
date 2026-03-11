@@ -11,7 +11,7 @@ cli.ts
      +-- for each character: fork characterLoop()     pipeline/character-loop.ts
          +-- runPhases(context, phaseRegistry)         core/phase-runner.ts
              +-- Phase: startup, active, break/social, reflection
-                 +-- runStateMachine() or runHypervisor()
+                 +-- runStateMachine() or runPlannedAction()
 ```
 
 ### Limbic System
@@ -26,7 +26,7 @@ core/limbic/
  +-- amygdala/         Threat detection: interrupt evaluation and alerting
  |   +-- interrupt.ts  InterruptRule, InterruptRegistry, createInterruptRegistry()
  +-- hypothalamus/     Homeostatic regulation: timing, cycle execution
- |   +-- tempo.ts      TempoConfig (StateMachineTempo | HypervisorTempo)
+ |   +-- tempo.ts      TempoConfig (StateMachineTempo | PlannedActionTempo)
  |   +-- cycle-runner.ts   runCycle (brain/body turn pair)
  |   +-- process-runner.ts runTurn (claude -p in container)
  |   +-- timeout-summarizer.ts
@@ -71,8 +71,8 @@ interface StateMachineTempo extends TempoBase {
   maxTurns: number
 }
 
-interface HypervisorTempo extends TempoBase {
-  _tag: "Hypervisor"
+interface PlannedActionTempo extends TempoBase {
+  _tag: "PlannedAction"
   maxCycles: number
   breakDurationMs: number
   breakPollIntervalSec: number
@@ -156,9 +156,9 @@ planAndSpawn
 
 The state machine supports lifecycle hooks (`shouldExit`, `onInterrupt`, `onReset`, `onProcedureComplete`) and an exit signal deferred for clean shutdown.
 
-### runHypervisor -- Brain/Body Cycles
+### Brain/Body Cycles
 
-Used by GitHub. Runs up to `maxCycles` brain/body cycles per active phase. Consumes 5 of 6 domain services (not SkillRegistry).
+Runs up to `maxCycles` brain/body cycles per active phase. Consumes 5 of 6 domain services (not SkillRegistry).
 
 ```
 for cycle in 0..maxCycles:
@@ -201,7 +201,7 @@ Add to the rules array in `domains/<domain>/interrupts.ts`:
 
 | | SpaceMolt | GitHub |
 |---|-----------|--------|
-| **Engine** | `runStateMachine` (plan/act/evaluate per event) | `runHypervisor` (up to 3 brain/body cycles per active phase) |
+| **Engine** | `runStateMachine` (plan/act/evaluate per event) | `runPlannedAction` (up to 3 brain/body cycles per active phase) |
 | **Phases** | startup, active, social, reflection | startup, active, break, reflection |
 | **Brain** | Opus plans steps, Haiku/Sonnet executes each step | Opus writes directives, Sonnet executes full session |
 | **Polling** | WebSocket events | Single GraphQL query per repo per poll |
@@ -330,14 +330,14 @@ All events printed type-tagged with timestamp and character name:
 | File | Role |
 |------|------|
 | `core/orchestrator/state-machine.ts` | Plan/act/evaluate event loop |
-| `core/orchestrator/hypervisor.ts` | Brain/body cycle engine, runBreak, runReflection |
+| `core/orchestrator/planned-action.ts` | Brain/body cycle engine, runBreak, runReflection |
 | `core/orchestrator/planning/brain.ts` | Brain functions: plan, interrupt, evaluate (Opus) |
 | `core/orchestrator/planning/subagent.ts` | Build prompt, run in container, handle exit |
 | `core/orchestrator/lifecycle.ts` | LifecycleHooks (shouldExit, onInterrupt, onReset) |
 | `core/limbic/thalamus/event-processor.ts` | EventProcessor, EventResult, EventCategory |
 | `core/limbic/thalamus/situation-classifier.ts` | SituationClassifier, SituationSummary |
 | `core/limbic/amygdala/interrupt.ts` | InterruptRule, InterruptRegistry, createInterruptRegistry() |
-| `core/limbic/hypothalamus/tempo.ts` | TempoConfig (StateMachineTempo, HypervisorTempo) |
+| `core/limbic/hypothalamus/tempo.ts` | TempoConfig (StateMachineTempo, PlannedActionTempo) |
 | `core/limbic/hypothalamus/cycle-runner.ts` | runCycle -- single brain/body turn pair |
 | `core/limbic/hypothalamus/process-runner.ts` | runTurn -- claude -p in container, exit code detection |
 | `core/limbic/hippocampus/dream.ts` | Dream compression (diary + secrets) |
@@ -352,7 +352,7 @@ All events printed type-tagged with timestamp and character name:
 
 | File | Role |
 |------|------|
-| `domains/github/phases.ts` | Phase registry: startup, active (runHypervisor), break (runBreak), reflection |
+| `domains/github/phases.ts` | Phase registry: startup, active (runPlannedAction), break (runBreak), reflection |
 | `domains/github/interrupts.ts` | Declarative interrupt rules (CI failing, review requested, untriaged issues, stale PRs) |
 | `domains/github/github-client.ts` | GraphQL polling, single query per repo, token validation |
 | `domains/github/brain-system-prompt.md` | Brain (Opus) system prompt |

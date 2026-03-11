@@ -1,6 +1,6 @@
 # Limbic System
 
-The limbic system is a passive sensing and signaling layer that sits between raw domain events and the orchestration engines (`runStateMachine`, `runHypervisor`). It handles data ingestion, situation classification, threat detection, homeostatic regulation, and memory consolidation. It does not orchestrate -- the orchestrator layer consumes limbic services to make decisions.
+The limbic system is a passive sensing and signaling layer that sits between raw domain events and the orchestration engines (`runStateMachine`, `runPlannedAction`). It handles data ingestion, situation classification, threat detection, homeostatic regulation, and memory consolidation. It does not orchestrate -- the orchestrator layer consumes limbic services to make decisions.
 
 The name comes from the biological limbic system. Each subsystem maps to a brain region that performs an analogous function: the thalamus relays sensory input, the amygdala detects threats, the hypothalamus maintains homeostasis, and the hippocampus consolidates memory. These are metaphors for code organization, not a neuroscience simulation.
 
@@ -98,7 +98,7 @@ Built via `createInterruptRegistry(rules)`, which handles rule walking, suppress
 - `criticals(state, situation, currentTask?)` -- only critical alerts (trigger replanning)
 - `softAlerts(state, situation, currentTask?)` -- non-critical alerts (accumulate for next brain prompt)
 
-Critical alerts cause immediate action: in the state machine, the subagent is killed and `brainInterrupt` replans. In the hypervisor, the active phase returns `Interrupted`. Soft alerts are batched and surfaced to the brain on its next planning cycle.
+Critical alerts cause immediate action: in the state machine, the subagent is killed and `brainInterrupt` replans. In the planned-action engine, the active phase returns `Interrupted`. Soft alerts are batched and surfaced to the brain on its next planning cycle.
 
 **Tag:** `InterruptRegistryTag`. Domains provide a `Layer` built from `createInterruptRegistry()`.
 
@@ -121,15 +121,15 @@ interface StateMachineTempo extends TempoBase {
   maxTurns: number                 // event loop turn limit
 }
 
-interface HypervisorTempo extends TempoBase {
-  _tag: "Hypervisor"
+interface PlannedActionTempo extends TempoBase {
+  _tag: "PlannedAction"
   maxCycles: number                // brain/body cycles per active phase
   breakDurationMs: number          // rest period between active phases
   breakPollIntervalSec: number     // how often to check for interrupts during break
 }
 ```
 
-`StateMachineTempo` is used by SpaceMolt: an event-driven loop where each domain event is a turn. `HypervisorTempo` is used by GitHub: a fixed number of brain/body cycles followed by a timed break.
+`StateMachineTempo` is used by SpaceMolt: an event-driven loop where each domain event is a turn. `PlannedActionTempo` is used by GitHub: a fixed number of brain/body cycles followed by a timed break.
 
 ### runCycle
 
@@ -184,7 +184,7 @@ Exported surface by subsystem:
 |-----------|-------|--------|
 | Thalamus | `EventProcessor`, `EventResult`, `EventCategory`, `DomainContext`, `SituationClassifier`, `SituationSummary` | `EventProcessorTag`, `SituationClassifierTag` |
 | Amygdala | `InterruptRule`, `InterruptRegistry`, `Alert` | `InterruptRegistryTag`, `createInterruptRegistry` |
-| Hypothalamus | `CycleConfig`, `CycleResult`, `TempoConfig`, `TempoBase`, `StateMachineTempo`, `HypervisorTempo` | `runCycle` |
+| Hypothalamus | `CycleConfig`, `CycleResult`, `TempoConfig`, `TempoBase`, `StateMachineTempo`, `PlannedActionTempo` | `runCycle` |
 | Hippocampus | `DreamType`, `DreamInput`, `DreamOutput` | `dream` |
 
 ## Data Flow

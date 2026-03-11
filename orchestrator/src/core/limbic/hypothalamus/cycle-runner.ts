@@ -25,7 +25,7 @@ export const runCycle = (
     // 1. Build brain prompt from state
     const brainPrompt = config.buildBrainPrompt()
 
-    yield* logToConsole(playerName, "hypervisor", `Starting brain turn (${Math.round(config.brainTimeoutMs / 1000)}s timeout)`)
+    yield* logToConsole(playerName, "planned-action", `Starting brain turn (${Math.round(config.brainTimeoutMs / 1000)}s timeout)`)
 
     // 2. Run brain
     const brainResult = yield* runTurn({
@@ -47,7 +47,7 @@ export const runCycle = (
 
     yield* logToConsole(
       playerName,
-      "hypervisor",
+      "planned-action",
       `Brain turn complete (${Math.round(brainResult.durationMs / 1000)}s)${brainResult.timedOut ? " — TIMED OUT" : ""}`,
     )
 
@@ -60,10 +60,10 @@ export const runCycle = (
         }),
       )
       brainOutput = brainSummary
-      yield* logToConsole(playerName, "hypervisor", `Brain timeout summary: ${brainSummary.slice(0, 200)}`)
+      yield* logToConsole(playerName, "planned-action", `Brain timeout summary: ${brainSummary.slice(0, 200)}`)
     }
 
-    yield* logToConsole(playerName, "hypervisor", `Starting body turn (${Math.round(config.bodyTimeoutMs / 1000)}s timeout)`)
+    yield* logToConsole(playerName, "planned-action", `Starting body turn (${Math.round(config.bodyTimeoutMs / 1000)}s timeout)`)
 
     // 3. Run body with brain output as prompt
     const bodyResult = yield* runTurn({
@@ -82,7 +82,7 @@ export const runCycle = (
 
     yield* logToConsole(
       playerName,
-      "hypervisor",
+      "planned-action",
       `Body turn complete (${Math.round(bodyResult.durationMs / 1000)}s)${bodyResult.timedOut ? " — TIMED OUT" : ""}`,
     )
 
@@ -94,7 +94,7 @@ export const runCycle = (
           )
         }),
       )
-      yield* logToConsole(playerName, "hypervisor", `Body timeout summary: ${bodySummary.slice(0, 200)}`)
+      yield* logToConsole(playerName, "planned-action", `Body timeout summary: ${bodySummary.slice(0, 200)}`)
     }
 
     return {

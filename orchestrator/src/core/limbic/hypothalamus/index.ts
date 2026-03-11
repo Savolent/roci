@@ -2,4 +2,4 @@
 
 export type { CycleConfig, CycleResult } from "./types.js"
 export { runCycle } from "./cycle-runner.js"
-export type { TempoConfig, TempoBase, StateMachineTempo, HypervisorTempo } from "./tempo.js"
+export type { TempoConfig, TempoBase, StateMachineTempo, PlannedActionTempo } from "./tempo.js"

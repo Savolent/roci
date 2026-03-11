@@ -12,7 +12,7 @@ export type { Alert } from "../types.js"
 // ── HYPOTHALAMUS ── Homeostatic regulation: timing, cycle execution
 export type { CycleConfig, CycleResult } from "./hypothalamus/index.js"
 export { runCycle } from "./hypothalamus/index.js"
-export type { TempoConfig, TempoBase, StateMachineTempo, HypervisorTempo } from "./hypothalamus/index.js"
+export type { TempoConfig, TempoBase, StateMachineTempo, PlannedActionTempo } from "./hypothalamus/index.js"
 
 // ── HIPPOCAMPUS ── Memory consolidation: dream compression
 export type { DreamType, DreamInput, DreamOutput } from "./hippocampus/index.js"
