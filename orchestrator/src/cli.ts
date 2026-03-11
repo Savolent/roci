@@ -3,8 +3,8 @@ import { Effect, Layer } from "effect"
 import { FileSystem } from "@effect/platform"
 import * as path from "node:path"
 import { execSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import WebSocket from "ws"
+import { createGitHubApp } from "./domains/github/create-app.js"
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
 import { Docker, DockerLive } from "./services/Docker.js"
 import { CharacterFs, CharacterFsLive, makeCharacterConfig } from "./services/CharacterFs.js"
 import { ClaudeLive } from "./services/Claude.js"
@@ -156,22 +156,6 @@ const statusCommand = Command.make("status", {}, () =>
   }),
 ).pipe(Command.withDescription("Show status of roci container(s)"))
 
-// --- auth command ---
-const authCommand = Command.make("auth", {}, () =>
-  Effect.gen(function* () {
-    yield* logToConsole("orchestrator", "cli", "Starting interactive auth...")
-    const docker = yield* Docker
-    const containers = yield* docker.listByLabel("roci-crew")
-    if (containers.length === 0) {
-      yield* Effect.log("No roci containers found. Start a domain first.")
-      return
-    }
-    for (const c of containers) {
-      yield* Effect.log(`Run: docker exec -it ${c.name} sh -c 'claude && touch /tmp/auth-ready'`)
-    }
-  }),
-).pipe(Command.withDescription("Authenticate Claude in roci containers"))
-
 // --- destroy command ---
 const destroyDomain = Options.text("domain").pipe(
   Options.optional,
@@ -198,116 +182,6 @@ const destroyCommand = Command.make("destroy", { domain: destroyDomain }, (args)
   }),
 ).pipe(Command.withDescription("Remove roci container(s)"))
 
-// --- logs command ---
-const logsCharacter = Args.text({ name: "character" })
-
-const logsCommand = Command.make("logs", { character: logsCharacter }, (args) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const thoughtsPath = path.resolve(
-      PROJECT_ROOT,
-      "players",
-      args.character,
-      "logs",
-      "thoughts.jsonl",
-    )
-    const content = yield* fs.readFileString(thoughtsPath).pipe(
-      Effect.catchAll(() => Effect.succeed("(no thoughts log found)")),
-    )
-    // Show last 50 entries
-    const lines = content.split("\n").filter(Boolean).slice(-50)
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line)
-        const ts = (entry.timestamp as string)?.slice(11, 19) ?? ""
-        const source = entry.source ?? "?"
-        const text = entry.text ?? entry.type ?? JSON.stringify(entry)
-        console.log(`[${ts}] [${source}] ${typeof text === "string" ? text.slice(0, 200) : JSON.stringify(text)}`)
-      } catch {
-        console.log(line)
-      }
-    }
-  }),
-).pipe(Command.withDescription("Show recent thoughts for a character"))
-
-// --- ws-test command ---
-const wsTestCharacter = Args.text({ name: "character" })
-
-const wsTestCommand = Command.make("ws-test", { character: wsTestCharacter }, (args) =>
-  Effect.gen(function* () {
-    const charFs = yield* CharacterFs
-    const char = makeCharacterConfig(PROJECT_ROOT, args.character)
-    const creds = yield* charFs.readCredentials(char)
-
-    const WS_URL = "wss://game.spacemolt.com/ws"
-    console.log(`[ws-test] Connecting to ${WS_URL} as ${creds.username}...`)
-
-    yield* Effect.async<void, never>((resume) => {
-      const sock = new WebSocket(WS_URL)
-      let msgCount = 0
-
-      sock.on("open", () => {
-        console.log(`[ws-test] Connected`)
-      })
-
-      sock.on("message", (data) => {
-        const raw = data.toString()
-        const chunks = raw.split("\n").filter((s) => s.trim().length > 0)
-        for (const chunk of chunks) {
-        msgCount++
-        try {
-          const parsed = JSON.parse(chunk)
-          const type = parsed.type ?? "unknown"
-          const payloadKeys = parsed.payload ? Object.keys(parsed.payload).join(", ") : "(no payload)"
-          console.log(`[ws-test] #${msgCount} ${type} — keys: ${payloadKeys}`)
-
-          if (type === "welcome") {
-            console.log(`[ws-test] Got welcome, sending login...`)
-            sock.send(JSON.stringify({
-              type: "login",
-              payload: { username: creds.username, password: creds.password },
-            }))
-          }
-
-          if (type === "logged_in") {
-            console.log(`[ws-test] Logged in! Sending get_status every 10s...`)
-            const poll = setInterval(() => {
-              console.log(`[ws-test] Sending get_status`)
-              sock.send(JSON.stringify({ type: "get_status" }))
-            }, 10000)
-            // Send one immediately
-            sock.send(JSON.stringify({ type: "get_status" }))
-            sock.on("close", () => clearInterval(poll))
-          }
-        } catch {
-          console.log(`[ws-test] #${msgCount} (parse error) ${chunk.slice(0, 200)}`)
-        }
-        }
-      })
-
-      sock.on("close", (code, reason) => {
-        console.log(`[ws-test] Closed: code=${code} reason=${reason.toString()}`)
-        resume(Effect.void)
-      })
-
-      sock.on("error", (err) => {
-        console.error(`[ws-test] Error: ${err.message}`)
-      })
-
-      sock.on("ping", () => {
-        console.log(`[ws-test] Received ping`)
-      })
-
-      // Keep alive for 60 seconds then close
-      setTimeout(() => {
-        console.log(`[ws-test] 60s elapsed, ${msgCount} messages received total. Closing.`)
-        sock.close()
-        resume(Effect.void)
-      }, 60000)
-    })
-  }),
-).pipe(Command.withDescription("Bare WebSocket connectivity test — no Effect queue, just raw ws"))
-
 // --- init command ---
 const initDomain = Options.text("domain").pipe(
   Options.withDescription("Domain to initialize (e.g. github, spacemolt)"),
@@ -325,12 +199,12 @@ const initCommand = Command.make("init", { domain: initDomain }, (args) =>
     const domainName = args.domain
 
     // 1. Look up domain in registry
-    const factory = DOMAIN_REGISTRY[domainName]
-    if (!factory) {
+    const registryEntry = DOMAIN_REGISTRY[domainName]
+    if (!registryEntry) {
       yield* logToConsole("init", "cli", `Unknown domain: ${domainName}. Known domains: ${Object.keys(DOMAIN_REGISTRY).join(", ")}`)
       return
     }
-    const domainConfig = factory(PROJECT_ROOT)
+    const domainConfig = registryEntry.factory(PROJECT_ROOT)
 
     // 2. Docker check (generic — all domains use containers)
     try {
@@ -445,12 +319,12 @@ const setupCommand = Command.make("setup", { characters: setupCharacters, domain
     }
 
     // 1. Look up domain
-    const factory = DOMAIN_REGISTRY[domainName]
-    if (!factory) {
+    const registryEntry = DOMAIN_REGISTRY[domainName]
+    if (!registryEntry) {
       yield* logToConsole("setup", "cli", `Unknown domain: ${domainName}. Known domains: ${Object.keys(DOMAIN_REGISTRY).join(", ")}`)
       return
     }
-    const domainConfig = factory(PROJECT_ROOT)
+    const domainConfig = registryEntry.factory(PROJECT_ROOT)
 
     // 2. Run project-level init once
     if (domainConfig.initProject) {
@@ -534,8 +408,218 @@ const setupCommand = Command.make("setup", { characters: setupCharacters, domain
   }),
 ).pipe(Command.withDescription("Set up character(s) for a domain — create files and config"))
 
+// --- create-app command ---
+const createAppCharacters = Args.text({ name: "characters" }).pipe(Args.repeated)
+const createAppOrg = Options.text("org").pipe(
+  Options.optional,
+  Options.withDescription("GitHub org to create apps under (default: personal account)"),
+)
+
+const createAppCommand = Command.make("create-app", { characters: createAppCharacters, org: createAppOrg }, (args) =>
+  Effect.gen(function* () {
+    const characters = [...args.characters]
+
+    if (characters.length === 0) {
+      // Fall back to all github characters from config.json
+      const projectConfig = loadProjectConfig(PROJECT_ROOT)
+      const ghChars: string[] = projectConfig.github?.characters ?? []
+      if (ghChars.length === 0) {
+        yield* logToConsole("create-app", "cli", "No characters specified and none in config.json github domain.")
+        return
+      }
+      characters.push(...ghChars)
+    }
+
+    const org = args.org._tag === "Some" ? args.org.value : undefined
+
+    for (const charName of characters) {
+      const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
+      const appJsonPath = path.resolve(charDir, "github-app.json")
+
+      if (existsSync(appJsonPath)) {
+        yield* logToConsole("create-app", "cli", `${charName} — github-app.json already exists, skipping`)
+        continue
+      }
+
+      if (!existsSync(charDir)) {
+        mkdirSync(charDir, { recursive: true })
+      }
+
+      yield* logToConsole("create-app", "cli", `Creating GitHub App for ${charName}...`)
+      yield* logToConsole("create-app", "cli", `Confirm the app name in your browser, then click "Create GitHub App".`)
+
+      const creds = yield* Effect.tryPromise({
+        try: () => createGitHubApp(charName, org),
+        catch: (err) => new Error(`Failed to create app for ${charName}: ${err}`),
+      })
+
+      writeFileSync(appJsonPath, JSON.stringify(creds, null, 2) + "\n")
+      yield* logToConsole("create-app", "cli", `${charName} — saved github-app.json (appId: ${creds.appId}, slug: ${creds.slug})`)
+
+      // Show install link
+      yield* logToConsole("create-app", "cli", `Install the app on your repos: https://github.com/apps/${creds.slug}/installations/new`)
+
+      if (characters.indexOf(charName) < characters.length - 1) {
+        yield* logToConsole("create-app", "cli", ``)
+      }
+    }
+
+    yield* logToConsole("create-app", "cli", `\nDone. Install each app on the relevant repos, then run 'init --domain github' to validate.`)
+  }),
+).pipe(Command.withDescription("Create GitHub Apps for character identities via manifest flow"))
+
+// --- default (no subcommand) handler ---
+// Reuse the same options as `start` so `roci` and `roci start` accept the same filters.
+const defaultCharacters = Args.text({ name: "characters" }).pipe(Args.repeated)
+
+const defaultTickInterval = Options.integer("tick-interval").pipe(
+  Options.withDefault(30),
+  Options.withDescription("Seconds between monitor ticks"),
+)
+
+const defaultDomainOption = Options.text("domain").pipe(
+  Options.repeated,
+  Options.withDescription("Domain(s) to run (e.g. spacemolt, github). If omitted, runs all from config.json."),
+)
+
+const defaultManualApproval = Options.boolean("manual-approval").pipe(
+  Options.withDefault(false),
+  Options.withDescription("Pause for manual approval before each plan/subagent step (rings terminal bell)"),
+)
+
+/**
+ * Auto-detect flow: if characters are configured, validate and start.
+ * Otherwise, print guidance listing available domains.
+ */
+const runAutoDetect = (args: {
+  characters: ReadonlyArray<string>
+  tickInterval: number
+  domain: ReadonlyArray<string>
+  manualApproval: boolean
+}) =>
+  Effect.gen(function* () {
+    const configPath = path.resolve(PROJECT_ROOT, "config.json")
+
+    // 1. Check if config.json exists
+    if (!existsSync(configPath)) {
+      yield* logToConsole("roci", "cli", "No characters configured. Run 'roci setup' to get started.")
+      yield* logToConsole("roci", "cli", "")
+      yield* logToConsole("roci", "cli", "Available domains:")
+      for (const [key, entry] of Object.entries(DOMAIN_REGISTRY)) {
+        yield* logToConsole("roci", "cli", `  ${key} — ${entry.description}`)
+      }
+      return
+    }
+
+    // 2. Load config and resolve domains/characters
+    const domains = [...args.domain]
+    const characters = [...args.characters]
+
+    let resolved: ReturnType<typeof resolveConfigs>
+    try {
+      resolved = resolveConfigs(PROJECT_ROOT, domains, characters)
+    } catch {
+      yield* logToConsole("roci", "cli", "No characters configured. Run 'roci setup' to get started.")
+      yield* logToConsole("roci", "cli", "")
+      yield* logToConsole("roci", "cli", "Available domains:")
+      for (const [key, entry] of Object.entries(DOMAIN_REGISTRY)) {
+        yield* logToConsole("roci", "cli", `  ${key} — ${entry.description}`)
+      }
+      return
+    }
+
+    // 3. Check if any characters are actually configured
+    const totalCharacters = resolved.reduce((sum, rd) => sum + rd.characters.length, 0)
+    if (totalCharacters === 0) {
+      yield* logToConsole("roci", "cli", "No characters configured. Run 'roci setup' to get started.")
+      yield* logToConsole("roci", "cli", "")
+      yield* logToConsole("roci", "cli", "Available domains:")
+      for (const [key, entry] of Object.entries(DOMAIN_REGISTRY)) {
+        yield* logToConsole("roci", "cli", `  ${key} — ${entry.description}`)
+      }
+      return
+    }
+
+    // 4. Run validation (init) for each resolved domain
+    const fs = yield* FileSystem.FileSystem
+    let allGood = true
+
+    for (const rd of resolved) {
+      yield* logToConsole("roci", "cli", `Validating ${rd.name} domain...`)
+      const domainConfig = rd.config
+
+      // Run domain's project-level init if present
+      if (domainConfig.initProject) {
+        const msgs = yield* domainConfig.initProject(PROJECT_ROOT)
+        for (const msg of msgs) yield* logProcMsg(msg)
+      }
+
+      // Validate each character
+      for (const charName of rd.characters) {
+        const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
+        const charDirExists = yield* fs.exists(charDir)
+        if (!charDirExists) {
+          yield* logToConsole("roci", "cli", `MISSING: ${charDir} — create this directory with character files`)
+          allGood = false
+          continue
+        }
+
+        // Common files check
+        for (const file of ["background.md", "VALUES.md", "DIARY.md"]) {
+          const filePath = path.resolve(charDir, file)
+          const fileExists = yield* fs.exists(filePath)
+          if (!fileExists) {
+            yield* logToConsole("roci", "cli", `MISSING: ${charName}/${file}`)
+            allGood = false
+          }
+        }
+
+        // Domain-specific init procedure
+        if (domainConfig.initProcedure) {
+          const msgs = yield* domainConfig.initProcedure.run({
+            projectRoot: PROJECT_ROOT,
+            characterName: charName,
+            characterDir: charDir,
+          })
+          for (const msg of msgs) {
+            if (msg.level !== "ok") allGood = false
+            yield* logProcMsg(msg)
+          }
+        }
+      }
+    }
+
+    if (!allGood) {
+      yield* logToConsole("roci", "cli", "")
+      yield* logToConsole("roci", "cli", "Fix the issues above before starting.")
+      return
+    }
+
+    // 5. Validation passed — start execution
+    yield* logToConsole("roci", "cli", "Validation passed. Starting execution...")
+
+    // Validate all character directories exist (same as startCommand)
+    const charFs = yield* CharacterFs
+    for (const rd of resolved) {
+      for (const name of rd.characters) {
+        const char = makeCharacterConfig(PROJECT_ROOT, name)
+        const exists = yield* charFs.characterExists(char)
+        if (!exists) {
+          yield* Effect.logError(`Character directory not found: ${char.dir}`)
+          return
+        }
+      }
+    }
+
+    yield* runOrchestrator(resolved, args.tickInterval, args.manualApproval)
+  })
+
 // --- root command ---
-const rociCommand = Command.make("roci").pipe(
+const rociCommand = Command.make(
+  "roci",
+  { characters: defaultCharacters, tickInterval: defaultTickInterval, domain: defaultDomainOption, manualApproval: defaultManualApproval },
+  (args) => runAutoDetect(args),
+).pipe(
   Command.withSubcommands([
     setupCommand,
     initCommand,
@@ -544,10 +628,8 @@ const rociCommand = Command.make("roci").pipe(
     pauseCommand,
     resumeCommand,
     statusCommand,
-    authCommand,
     destroyCommand,
-    logsCommand,
-    wsTestCommand,
+    createAppCommand,
   ]),
   Command.withDescription("Rocinante crew orchestrator"),
 )

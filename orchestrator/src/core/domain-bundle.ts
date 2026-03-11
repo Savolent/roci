@@ -84,4 +84,9 @@ export interface DomainConfig {
   readonly initProject?: (projectRoot: string) => Effect.Effect<ProcedureMessage[]>
   /** Instructions shown when no characters are configured yet. */
   readonly characterSetupGuide?: string[]
+  /** Hints for generating character identity files (background, values). */
+  readonly identityTemplate?: {
+    readonly backgroundHints: string
+    readonly valuesHints: string
+  }
 }

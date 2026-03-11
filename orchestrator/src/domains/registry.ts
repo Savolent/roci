@@ -7,10 +7,25 @@ import { gitHubDomainConfig } from "./github/config.js"
 /** Factory that builds a DomainConfig given the project root. */
 export type DomainConfigFactory = (projectRoot: string) => DomainConfig
 
+/** Metadata + factory for a registered domain. */
+export interface DomainRegistryEntry {
+  factory: DomainConfigFactory
+  displayName: string
+  description: string
+}
+
 /** Static registry of all known domains. Add a new domain = one line here. */
-export const DOMAIN_REGISTRY: Record<string, DomainConfigFactory> = {
-  spacemolt: spaceMoltDomainConfig,
-  github: gitHubDomainConfig,
+export const DOMAIN_REGISTRY: Record<string, DomainRegistryEntry> = {
+  spacemolt: {
+    factory: spaceMoltDomainConfig,
+    displayName: "SpaceMolt",
+    description: "AI agents playing a persistent multiplayer space MMO via WebSocket",
+  },
+  github: {
+    factory: gitHubDomainConfig,
+    displayName: "GitHub",
+    description: "AI agents managing repositories — triaging issues, reviewing PRs, writing code",
+  },
 }
 
 /** Shape of config.json at the project root. */
@@ -51,8 +66,8 @@ export function resolveConfigs(
     // Apply domain filter
     if (domainFilter.length > 0 && !domainFilter.includes(domainName)) continue
 
-    const factory = DOMAIN_REGISTRY[domainName]
-    if (!factory) {
+    const registryEntry = DOMAIN_REGISTRY[domainName]
+    if (!registryEntry) {
       console.warn(`Warning: domain "${domainName}" in config.json has no registry entry, skipping`)
       continue
     }
@@ -66,7 +81,7 @@ export function resolveConfigs(
 
     resolved.push({
       name: domainName,
-      config: factory(projectRoot),
+      config: registryEntry.factory(projectRoot),
       characters,
     })
   }

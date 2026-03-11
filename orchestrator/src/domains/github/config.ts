@@ -259,4 +259,12 @@ export const gitHubDomainConfig = (projectRoot: string): DomainConfig => ({
   initProject: gitHubInitProject,
   setupCharacter: gitHubSetupCharacter,
   characterSetupGuide: gitHubCharacterSetupGuide,
+  identityTemplate: {
+    backgroundHints:
+      "You are a software engineer working on open source repositories. You have opinions about code quality, " +
+      "architecture patterns, and how teams collaborate effectively on shared codebases.",
+    valuesHints:
+      "Your priorities include code review thoroughness, issue triage responsiveness, CI health and test coverage, " +
+      "and fostering constructive collaboration practices across contributors.",
+  },
 })

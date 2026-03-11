@@ -140,4 +140,12 @@ export const spaceMoltDomainConfig = (projectRoot: string): DomainConfig => ({
   initProcedure: spaceMoltInitProcedure,
   setupCharacter: spaceMoltSetupCharacter,
   characterSetupGuide: spaceMoltCharacterSetupGuide,
+  identityTemplate: {
+    backgroundHints:
+      "You are a character in a persistent multiplayer space MMO. You belong to a faction or empire, " +
+      "have relationships with other players, and make decisions about exploration, combat, trade, and diplomacy.",
+    valuesHints:
+      "Your priorities include resource management, faction loyalty, combat readiness, exploration of unknown sectors, " +
+      "and maintaining social relationships with allies and rivals.",
+  },
 })
