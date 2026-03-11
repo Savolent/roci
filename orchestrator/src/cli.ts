@@ -14,6 +14,7 @@ import { runOrchestrator } from "./orchestrator.js"
 import { logToConsole } from "./logging/console-renderer.js"
 import { DOMAIN_REGISTRY, loadProjectConfig, resolveConfigs } from "./domains/registry.js"
 import type { ProcedureMessage } from "./core/domain-bundle.js"
+import { scaffoldCharacter } from "./core/character-scaffold.js"
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "../..")
 
@@ -340,28 +341,14 @@ const setupCommand = Command.make("setup", { characters: setupCharacters, domain
       yield* logToConsole("setup", "cli", `\n--- Setting up ${charName} ---`)
       const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
 
-      // Create character dir if missing
-      if (!existsSync(charDir)) {
-        mkdirSync(charDir, { recursive: true })
-        yield* logToConsole("setup", "cli", `Created ${charDir}`)
-      }
-
-      // Check required files
-      const bgPath = path.resolve(charDir, "background.md")
-      const valuesPath = path.resolve(charDir, "VALUES.md")
-      if (!existsSync(bgPath) || !existsSync(valuesPath)) {
-        yield* logToConsole("setup", "cli", `ERROR: ${charName} is missing background.md or VALUES.md — skipping`)
-        yield* logToConsole("setup", "cli", `  Create these files first, then re-run setup.`)
-        continue
-      }
-
-      // Create empty supporting files if missing
-      for (const file of ["DIARY.md", "SECRETS.md"]) {
-        const filePath = path.resolve(charDir, file)
-        if (!existsSync(filePath)) {
-          writeFileSync(filePath, "")
-          yield* logToConsole("setup", "cli", `Created empty ${file}`)
-        }
+      // Scaffold generic identity files (background.md, VALUES.md, DIARY.md, SECRETS.md)
+      const scaffoldResults = yield* scaffoldCharacter({
+        projectRoot: PROJECT_ROOT,
+        characterName: charName,
+        identityTemplate: domainConfig.identityTemplate,
+      })
+      for (const line of scaffoldResults) {
+        yield* logToConsole("setup", "cli", line)
       }
 
       // Domain-specific setup
