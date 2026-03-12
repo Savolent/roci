@@ -21,6 +21,8 @@ export interface PlannedActionConfig {
   char: CharacterConfig
   containerId: string
   containerEnv?: Record<string, string>
+  /** Container --add-dir paths for claude subagent. */
+  addDirs?: string[]
   events: Queue.Queue<unknown>
   initialState: unknown
   tempo: PlannedActionTempo
@@ -258,6 +260,7 @@ export const runPlannedAction = (config: PlannedActionConfig) =>
         brainTimeoutMs: config.brainTimeoutMs,
         bodyTimeoutMs: config.bodyTimeoutMs,
         env: config.containerEnv,
+        addDirs: config.addDirs,
         char: config.char,
         buildBrainPrompt: () => brainPromptString,
         brainDisallowedTools: config.brainDisallowedTools,

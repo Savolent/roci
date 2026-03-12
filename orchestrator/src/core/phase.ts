@@ -20,6 +20,8 @@ export interface PhaseContext<S = unknown, Evt = unknown> {
   readonly char: CharacterConfig
   readonly containerId: string
   readonly containerEnv?: Record<string, string>
+  /** Container --add-dir paths for claude subagent. */
+  readonly containerAddDirs?: string[]
   /** Connection state — available after the startup phase connects. */
   readonly connection?: ConnectionState<S, Evt>
   /** Arbitrary data threaded between phases. */

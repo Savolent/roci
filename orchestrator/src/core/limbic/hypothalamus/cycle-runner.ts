@@ -36,6 +36,7 @@ export const runCycle = (
       model: config.brainModel,
       timeoutMs: config.brainTimeoutMs,
       env: config.env,
+      addDirs: config.addDirs,
       char: config.char,
       role: "brain",
       allowedTools: config.brainAllowedTools,
@@ -74,6 +75,7 @@ export const runCycle = (
       model: config.bodyModel,
       timeoutMs: config.bodyTimeoutMs,
       env: config.env,
+      addDirs: config.addDirs,
       char: config.char,
       role: "body",
     })

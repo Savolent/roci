@@ -55,8 +55,10 @@ export const runTurn = (config: TurnConfig): Effect.Effect<
       const textAccumulator = yield* Ref.make<string[]>([])
 
       // Build claude flags — use stream-json for real-time output
-      // Note: run-step.sh already adds --permission-mode bypassPermissions
       const claudeArgs: string[] = [
+        "-p",
+        "--permission-mode", "bypassPermissions",
+        "--no-session-persistence",
         "--model", config.model,
         "--output-format", "stream-json",
         "--verbose",
@@ -76,15 +78,21 @@ export const runTurn = (config: TurnConfig): Effect.Effect<
         claudeArgs.push("--disallowedTools", config.disallowedTools.join(","))
       }
 
+      if (config.addDirs) {
+        for (const dir of config.addDirs) {
+          claudeArgs.push("--add-dir", dir)
+        }
+      }
+
       if (config.systemPrompt) {
         claudeArgs.push("--system-prompt", shellEscape(config.systemPrompt))
       }
 
-      const innerCmd = `/opt/scripts/run-step.sh ${config.playerName} ${claudeArgs.join(" ")}`
+      const innerCmd = `claude ${claudeArgs.join(" ")}`
       const promptStream = Stream.encodeText(Stream.make(config.prompt))
 
       // Build docker exec args
-      const execArgs: string[] = ["exec", "-i"]
+      const execArgs: string[] = ["exec", "-i", "-w", `/work/players/${config.playerName}`]
       if (config.env) {
         for (const [key, val] of Object.entries(config.env)) {
           execArgs.push("-e", `${key}=${val}`)

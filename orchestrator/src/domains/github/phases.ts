@@ -260,6 +260,7 @@ const activePhase = {
         char: context.char,
         containerId: context.containerId,
         containerEnv,
+        addDirs: context.containerAddDirs,
         events: conn.events as Queue.Queue<unknown>,
         initialState: conn.initialState as unknown,
         tempo,

@@ -60,13 +60,6 @@ const ensureContainer = (containerName: string, rd: ResolvedDomain) =>
       yield* docker.remove(containerName)
     }
 
-    // Build env for container — include ROCI_ADD_DIRS if configured
-    const containerCreateEnv: Record<string, string> = {}
-    const addDirs = rd.config.containerAddDirs
-    if (addDirs && addDirs.length > 0) {
-      containerCreateEnv.ROCI_ADD_DIRS = addDirs.join(":")
-    }
-
     // Create the container with domain-specific mounts
     const containerId = yield* docker.create({
       name: containerName,
@@ -76,7 +69,7 @@ const ensureContainer = (containerName: string, rd: ResolvedDomain) =>
         container: m.container,
         readonly: m.readonly,
       })),
-      env: containerCreateEnv,
+      env: {},
       cmd: ["bash", "-c", "sudo /usr/local/bin/init-firewall.sh && sleep infinity"],
       capAdd: ["NET_ADMIN", "NET_RAW"],
     })
@@ -168,6 +161,7 @@ export const runOrchestrator = (resolvedDomains: ResolvedDomain[], tickIntervalS
                 char,
                 containerId,
                 containerEnv,
+                containerAddDirs: rd.config.containerAddDirs,
                 domainBundle: rd.config.bundle,
                 phaseData: manualApproval ? { manualApproval: true } : undefined,
               },

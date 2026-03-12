@@ -235,6 +235,7 @@ interface SpawnSubagentConfig {
   readonly containerId: string
   readonly playerName: string
   readonly containerEnv?: Record<string, string>
+  readonly addDirs?: string[]
   readonly tickIntervalSec: number
   readonly modeRef?: Ref.Ref<BrainMode>
 }
@@ -282,6 +283,7 @@ export const maybeSpawnSubagent = (
         playerName: smConfig.playerName,
         systemPrompt,
         containerEnv: smConfig.containerEnv,
+        addDirs: smConfig.addDirs,
         step: finalStep,
         state,
         situation,

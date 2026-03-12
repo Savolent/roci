@@ -28,6 +28,8 @@ export interface StateMachineConfig {
   containerId: string
   playerName: string
   containerEnv?: Record<string, string>
+  /** Container --add-dir paths for claude subagent. */
+  addDirs?: string[]
   events: Queue.Queue<DomainEvent>
   initialState: DomainState
   tickIntervalSec: number
@@ -114,6 +116,7 @@ export const runStateMachine = (config: StateMachineConfig) =>
       containerId: config.containerId,
       playerName: config.playerName,
       containerEnv: config.containerEnv,
+      addDirs: config.addDirs,
       tickIntervalSec: config.tickIntervalSec,
       modeRef,
     }
@@ -222,6 +225,7 @@ Write a brief diary entry summarizing outcomes and lessons learned. Append to th
           playerName: config.playerName,
           systemPrompt: systemPromptText,
           containerEnv: config.containerEnv,
+          addDirs: config.addDirs,
           step: { task: "diary", goal: diaryPrompt, model: "haiku", successCondition: "diary updated", timeoutTicks: 3 },
           state,
           situation: procedureSummary.situation,

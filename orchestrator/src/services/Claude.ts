@@ -25,7 +25,7 @@ export class Claude extends Context.Tag("Claude")<
       maxTurns?: number
     }) => Effect.Effect<string, ClaudeError>
 
-    /** Run claude -p inside a Docker container via run-step.sh, returning a stream + exit handle. */
+    /** Run claude -p inside a Docker container, returning a stream + exit handle. */
     readonly execInContainer: (opts: {
       containerId: string
       playerName: string
@@ -34,6 +34,7 @@ export class Claude extends Context.Tag("Claude")<
       systemPrompt?: string
       outputFormat?: "text" | "stream-json"
       allowedTools?: string[]
+      addDirs?: string[]
       env?: Record<string, string>
     }) => Effect.Effect<
       {
@@ -170,8 +171,11 @@ export const ClaudeLive = Layer.effect(
         Effect.gen(function* () {
           const outputFormat = opts.outputFormat ?? "stream-json"
 
-          // Extra flags forwarded to run-step.sh → claude -p
-          const extraArgs: string[] = [
+          // Build the full claude command directly
+          const claudeArgs: string[] = [
+            "-p",
+            "--permission-mode", "bypassPermissions",
+            "--no-session-persistence",
             "--model", opts.model,
             "--output-format", outputFormat,
             ...(outputFormat === "stream-json" ? ["--verbose"] : []),
@@ -179,16 +183,21 @@ export const ClaudeLive = Layer.effect(
             ...(opts.model !== "opus" ? ["--effort", "low"] : []),
           ]
 
-          if (opts.systemPrompt) {
-            extraArgs.push("--system-prompt", shellEscape(opts.systemPrompt))
+          if (opts.addDirs) {
+            for (const dir of opts.addDirs) {
+              claudeArgs.push("--add-dir", dir)
+            }
           }
 
-          // Pipe prompt via stdin to docker exec -i → run-step.sh → claude -p
-          const innerCmd = `/opt/scripts/run-step.sh ${opts.playerName} ${extraArgs.join(" ")}`
+          if (opts.systemPrompt) {
+            claudeArgs.push("--system-prompt", shellEscape(opts.systemPrompt))
+          }
+
+          const innerCmd = `claude ${claudeArgs.join(" ")}`
           const promptStream = Stream.encodeText(Stream.make(opts.prompt))
 
           // Build docker exec args, injecting env vars via -e flags
-          const execArgs: string[] = ["exec", "-i"]
+          const execArgs: string[] = ["exec", "-i", "-w", `/work/players/${opts.playerName}`]
           if (opts.env) {
             for (const [key, val] of Object.entries(opts.env)) {
               execArgs.push("-e", `${key}=${val}`)

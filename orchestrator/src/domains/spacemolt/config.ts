@@ -41,11 +41,6 @@ const containerMounts = (projectRoot: string): ContainerMount[] => [
     container: "/opt/devcontainer",
     readonly: true,
   },
-  {
-    host: path.resolve(projectRoot, "scripts"),
-    container: "/opt/scripts",
-    readonly: true,
-  },
 ]
 
 /** Post-start container setup for SpaceMolt (creates sm CLI symlink). */

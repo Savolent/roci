@@ -74,7 +74,7 @@ export interface DomainConfig {
   readonly dockerContext?: string
   /** Additional domains for firewall allowlist. */
   readonly firewallExtraDomains?: string[]
-  /** Container --add-dir paths for claude subagent (colon-separated in ROCI_ADD_DIRS env var). */
+  /** Container --add-dir paths for claude subagent. */
   readonly containerAddDirs?: string[]
   /** Per-character setup procedure — creates domain-specific config files interactively. */
   readonly setupCharacter?: DomainProcedure<InitContext>

@@ -31,11 +31,6 @@ const containerMounts = (projectRoot: string): ContainerMount[] => [
     container: "/work/repos/.claude",
     readonly: true,
   },
-  {
-    host: path.resolve(projectRoot, "scripts"),
-    container: "/opt/scripts",
-    readonly: true,
-  },
 ]
 
 /**

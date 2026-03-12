@@ -10,6 +10,8 @@ export interface TurnConfig {
   model: ClaudeModel
   timeoutMs: number
   env?: Record<string, string>
+  /** Container --add-dir paths for claude subagent. */
+  addDirs?: string[]
   /** Character config for log routing. */
   char: CharacterConfig
   /** Label for console output (e.g. "brain", "body"). */
@@ -38,6 +40,8 @@ export interface CycleConfig {
   brainTimeoutMs: number
   bodyTimeoutMs: number
   env?: Record<string, string>
+  /** Container --add-dir paths for claude subagent. */
+  addDirs?: string[]
   /** Character config for log routing. */
   char: CharacterConfig
   /** Called before each cycle to generate the brain's input prompt (state summary, etc.) */

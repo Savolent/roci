@@ -15,6 +15,7 @@ export interface SubagentInput {
   playerName: string
   systemPrompt: string
   containerEnv?: Record<string, string>
+  addDirs?: string[]
   step: PlanStep
   state: DomainState
   situation: DomainSituation
@@ -64,6 +65,7 @@ export const runGenericSubagent = (input: SubagentInput) =>
           model: input.step.model,
           systemPrompt: input.systemPrompt,
           outputFormat: "stream-json",
+          addDirs: input.addDirs,
           env: input.containerEnv,
         })
 

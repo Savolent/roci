@@ -215,6 +215,7 @@ const activePhase = {
         containerId: context.containerId,
         playerName: context.char.name,
         containerEnv: context.containerEnv,
+        addDirs: context.containerAddDirs,
         events: events as Queue.Queue<unknown>,
         initialState,
         tickIntervalSec,
