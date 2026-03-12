@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Queue, Scope, Schedule, Fiber, Ref, Deferred } from "effect"
+import { Context, Effect, Layer, Queue, Scope, Schedule, Fiber, Ref, Deferred, Runtime } from "effect"
 import WebSocket from "ws"
 import type { Credentials, GameState, NearbyPlayer, PlayerState, ShipState } from "./types.js"
 import type {
@@ -88,6 +88,17 @@ export const makeGameSocketLive = () =>
         Effect.gen(function* () {
           const events = yield* Queue.bounded<GameEvent>(QUEUE_CAPACITY)
 
+          // Capture the current runtime so WebSocket callbacks can run effects
+          // on the correct scheduler. Using Effect.runSync/runFork (which use
+          // the default global runtime) from callbacks can silently drop
+          // Deferred notifications when the waiting fiber lives on a different
+          // runtime (e.g. NodeRuntime). By capturing the runtime here, every
+          // callback dispatches work on the same scheduler as the fibers that
+          // created these Deferreds/Refs/Queues.
+          const rt = yield* Effect.runtime<never>()
+          const runSync = Runtime.runSync(rt)
+          const runFork = Runtime.runFork(rt)
+
           // Per-connection WebSocket reference (not shared across connections)
           let ws: WebSocket | null = null
 
@@ -138,12 +149,12 @@ export const makeGameSocketLive = () =>
                   // If this is the logged_in event, resolve the deferred
                   if (event.type === "logged_in") {
                     const state = buildInitialState((event as LoggedInEvent).payload)
-                    Effect.runSync(
+                    runSync(
                       Deferred.succeed(loggedInDeferred, state).pipe(
                         Effect.catchAll(() => Effect.void), // Already resolved on reconnect
                       ),
                     )
-                    Effect.runSync(Ref.set(hasLoggedIn, true))
+                    runSync(Ref.set(hasLoggedIn, true))
                   }
 
                   // Synthesize state_update from get_status poll responses
@@ -167,7 +178,7 @@ export const makeGameSocketLive = () =>
                           } : {}),
                         },
                       }
-                      Effect.runFork(
+                      runFork(
                         Queue.offer(events, synthetic).pipe(
                           Effect.catchAll(() =>
                             Effect.sync(() => console.warn(`[${characterName}:ws] Event queue full — dropping state_update event`))
@@ -179,7 +190,7 @@ export const makeGameSocketLive = () =>
                   }
 
                   // Offer original event to queue
-                  Effect.runFork(
+                  runFork(
                     Queue.offer(events, event).pipe(
                       Effect.catchAll(() =>
                         Effect.sync(() => console.warn(`[${characterName}:ws] Event queue full — dropping ${event.type} event`))
@@ -206,7 +217,7 @@ export const makeGameSocketLive = () =>
                     clearTimeout(timeout)
                     socket.removeListener("message", handler)
                     const welcomePayload = (event as WelcomeEvent).payload
-                    Effect.runSync(Ref.set(tickIntervalRef, welcomePayload.tick_rate))
+                    runSync(Ref.set(tickIntervalRef, welcomePayload.tick_rate))
                     serverTick = welcomePayload.current_tick
                     resume(Effect.succeed(undefined))
                   }
@@ -241,7 +252,7 @@ export const makeGameSocketLive = () =>
               ws = null
 
               // Reconnect if not intentionally closed
-              Effect.runFork(
+              runFork(
                 Effect.gen(function* () {
                   const isClosed = yield* Ref.get(closed)
                   if (isClosed) return
