@@ -1,4 +1,4 @@
-import { Effect, Fiber } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { Docker, DockerError } from "./services/Docker.js"
 import { runPhases } from "./core/phase-runner.js"
 import { logToConsole } from "./logging/console-renderer.js"
@@ -155,9 +155,6 @@ export const runOrchestrator = (resolvedDomains: ResolvedDomain[], tickIntervalS
       const containerName = `roci-${rd.name}`
       const containerId = yield* ensureContainer(containerName, rd)
 
-      // Build the per-character service layer with domain-specific services
-      const domainServiceLayer = rd.config.serviceLayer
-
       for (const charName of rd.characters) {
         const char = makeCharacterConfig(projectRoot, charName)
 
@@ -182,6 +179,16 @@ export const runOrchestrator = (resolvedDomains: ResolvedDomain[], tickIntervalS
             logToConsole(charName, "orchestrator", `Fatal error: ${e}`),
           ),
         )
+
+        // Each character gets a fresh (non-memoized) copy of the domain service
+        // layer. Without Layer.fresh, Effect memoizes layers by reference, so all
+        // characters in a domain share one allocation. For stateful services like
+        // GameSocket (which hold a mutable WebSocket ref per connect() call), a
+        // shared layer can cause one character's connect() to race with another's,
+        // leading to stolen connections or lost login acks.
+        const domainServiceLayer = rd.config.serviceLayer
+          ? Layer.fresh(rd.config.serviceLayer)
+          : undefined
 
         // Phase types erase R to `never` via cast, so loopEffect's R is already
         // satisfied. The layer is only needed at runtime for service resolution.
