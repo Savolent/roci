@@ -14,6 +14,7 @@ import { runStateMachine } from "../../core/orchestrator/state-machine.js"
 import { logToConsole } from "../../logging/console-renderer.js"
 import { CharacterLog } from "../../logging/log-writer.js"
 import { registerCharacter, deriveUsername, pickEmpire } from "./register.js"
+import { askUser } from "../../util/prompt.js"
 
 /** Ticks in the active game loop before transitioning to social phase. At 30s/tick, 100 ticks ~ 50 min. */
 const ACTIVE_SESSION_TURNS = 100
@@ -48,26 +49,35 @@ const startupPhase = {
           Effect.catchAll(() => Effect.succeed(false)),
         )
 
-        if (!regCodeExists) {
-          yield* logToConsole(
-            context.char.name,
-            "orchestrator",
-            "No credentials.txt or registration-code.txt found. Run 'roci setup --domain spacemolt' to configure this character.",
+        // Read existing registration code, or prompt for one
+        let registrationCode: string | undefined
+
+        if (regCodeExists) {
+          registrationCode = yield* fs.readFileString(regCodePath).pipe(
+            Effect.map((s) => s.trim()),
+            Effect.catchAll(() => Effect.succeed("")),
           )
-          return { _tag: "Shutdown" } as PhaseResult
         }
 
-        // Read the registration code
-        const registrationCode = yield* fs.readFileString(regCodePath).pipe(
-          Effect.map((s) => s.trim()),
-          Effect.catchAll((e) => {
-            return logToConsole(
+        if (!registrationCode) {
+          // Prompt the user inline — this blocks this character's fiber only
+          const code = yield* askUser(
+            `[${context.char.name}] Enter SpaceMolt registration code (from spacemolt.com/dashboard): `,
+          )
+          registrationCode = code?.trim()
+
+          if (!registrationCode) {
+            yield* logToConsole(
               context.char.name,
               "orchestrator",
-              `Failed to read registration-code.txt: ${e}`,
-            ).pipe(Effect.flatMap(() => Effect.fail(e)))
-          }),
-        )
+              "No registration code provided — skipping registration",
+            )
+            return { _tag: "Shutdown" } as PhaseResult
+          }
+
+          // Save for future runs
+          yield* fs.writeFileString(regCodePath, registrationCode + "\n")
+        }
 
         if (!registrationCode) {
           yield* logToConsole(
