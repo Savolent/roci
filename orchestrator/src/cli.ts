@@ -1,5 +1,5 @@
 import { Args, Command, Options } from "@effect/cli"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { FileSystem } from "@effect/platform"
 import * as path from "node:path"
 import { execSync } from "node:child_process"
@@ -15,8 +15,13 @@ import { logToConsole } from "./logging/console-renderer.js"
 import { DOMAIN_REGISTRY, loadProjectConfig, resolveConfigs } from "./domains/registry.js"
 import type { ProcedureMessage } from "./core/domain-bundle.js"
 import { scaffoldCharacter } from "./core/character-scaffold.js"
+import { runGuidedSetup } from "./setup/guided-setup.js"
+import { validateAndStart } from "./setup/validate-and-start.js"
 
-const PROJECT_ROOT = path.resolve(import.meta.dirname, "../..")
+const isDev = import.meta.url.endsWith(".ts")
+const PROJECT_ROOT = isDev
+  ? path.resolve(import.meta.dirname, "../..")  // dev: orchestrator/src/ -> repo root
+  : process.cwd()                                // published: user runs from project root
 
 // Shared options
 const tickInterval = Options.integer("tick-interval").pipe(
@@ -307,12 +312,27 @@ const initCommand = Command.make("init", { domain: initDomain }, (args) =>
 const setupCharacters = Args.text({ name: "characters" }).pipe(Args.repeated)
 const setupDomain = Options.text("domain").pipe(
   Options.withDescription("Domain to set up characters for (e.g. github, spacemolt)"),
+  Options.optional,
 )
 
 const setupCommand = Command.make("setup", { characters: setupCharacters, domain: setupDomain }, (args) =>
   Effect.gen(function* () {
     const characters = [...args.characters]
-    const domainName = args.domain
+
+    // If no --domain and no characters, run interactive guided setup
+    if (Option.isNone(args.domain) && characters.length === 0) {
+      yield* runGuidedSetup(PROJECT_ROOT)
+      return
+    }
+
+    // If --domain was provided but no characters, show usage
+    if (Option.isNone(args.domain)) {
+      yield* logToConsole("setup", "cli", "No domain specified. Usage: roci setup <character> [character...] --domain <domain>")
+      yield* logToConsole("setup", "cli", "Or run 'roci setup' with no arguments for guided setup.")
+      return
+    }
+
+    const domainName = args.domain.value
 
     if (characters.length === 0) {
       yield* logToConsole("setup", "cli", "No characters specified. Usage: roci setup <character> [character...] --domain <domain>")
@@ -476,7 +496,7 @@ const defaultManualApproval = Options.boolean("manual-approval").pipe(
 
 /**
  * Auto-detect flow: if characters are configured, validate and start.
- * Otherwise, print guidance listing available domains.
+ * Otherwise, launch interactive guided setup.
  */
 const runAutoDetect = (args: {
   characters: ReadonlyArray<string>
@@ -489,12 +509,7 @@ const runAutoDetect = (args: {
 
     // 1. Check if config.json exists
     if (!existsSync(configPath)) {
-      yield* logToConsole("roci", "cli", "No characters configured. Run 'roci setup' to get started.")
-      yield* logToConsole("roci", "cli", "")
-      yield* logToConsole("roci", "cli", "Available domains:")
-      for (const [key, entry] of Object.entries(DOMAIN_REGISTRY)) {
-        yield* logToConsole("roci", "cli", `  ${key} — ${entry.description}`)
-      }
+      yield* runGuidedSetup(PROJECT_ROOT)
       return
     }
 
@@ -506,99 +521,19 @@ const runAutoDetect = (args: {
     try {
       resolved = resolveConfigs(PROJECT_ROOT, domains, characters)
     } catch {
-      yield* logToConsole("roci", "cli", "No characters configured. Run 'roci setup' to get started.")
-      yield* logToConsole("roci", "cli", "")
-      yield* logToConsole("roci", "cli", "Available domains:")
-      for (const [key, entry] of Object.entries(DOMAIN_REGISTRY)) {
-        yield* logToConsole("roci", "cli", `  ${key} — ${entry.description}`)
-      }
+      yield* runGuidedSetup(PROJECT_ROOT)
       return
     }
 
     // 3. Check if any characters are actually configured
     const totalCharacters = resolved.reduce((sum, rd) => sum + rd.characters.length, 0)
     if (totalCharacters === 0) {
-      yield* logToConsole("roci", "cli", "No characters configured. Run 'roci setup' to get started.")
-      yield* logToConsole("roci", "cli", "")
-      yield* logToConsole("roci", "cli", "Available domains:")
-      for (const [key, entry] of Object.entries(DOMAIN_REGISTRY)) {
-        yield* logToConsole("roci", "cli", `  ${key} — ${entry.description}`)
-      }
+      yield* runGuidedSetup(PROJECT_ROOT)
       return
     }
 
-    // 4. Run validation (init) for each resolved domain
-    const fs = yield* FileSystem.FileSystem
-    let allGood = true
-
-    for (const rd of resolved) {
-      yield* logToConsole("roci", "cli", `Validating ${rd.name} domain...`)
-      const domainConfig = rd.config
-
-      // Run domain's project-level init if present
-      if (domainConfig.initProject) {
-        const msgs = yield* domainConfig.initProject(PROJECT_ROOT)
-        for (const msg of msgs) yield* logProcMsg(msg)
-      }
-
-      // Validate each character
-      for (const charName of rd.characters) {
-        const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
-        const charDirExists = yield* fs.exists(charDir)
-        if (!charDirExists) {
-          yield* logToConsole("roci", "cli", `MISSING: ${charDir} — create this directory with character files`)
-          allGood = false
-          continue
-        }
-
-        // Common files check
-        for (const file of ["background.md", "VALUES.md", "DIARY.md"]) {
-          const filePath = path.resolve(charDir, file)
-          const fileExists = yield* fs.exists(filePath)
-          if (!fileExists) {
-            yield* logToConsole("roci", "cli", `MISSING: ${charName}/${file}`)
-            allGood = false
-          }
-        }
-
-        // Domain-specific init procedure
-        if (domainConfig.initProcedure) {
-          const msgs = yield* domainConfig.initProcedure.run({
-            projectRoot: PROJECT_ROOT,
-            characterName: charName,
-            characterDir: charDir,
-          })
-          for (const msg of msgs) {
-            if (msg.level !== "ok") allGood = false
-            yield* logProcMsg(msg)
-          }
-        }
-      }
-    }
-
-    if (!allGood) {
-      yield* logToConsole("roci", "cli", "")
-      yield* logToConsole("roci", "cli", "Fix the issues above before starting.")
-      return
-    }
-
-    // 5. Validation passed — start execution
-    yield* logToConsole("roci", "cli", "Validation passed. Starting execution...")
-
-    // Validate all character directories exist (same as startCommand)
-    const charFs = yield* CharacterFs
-    for (const rd of resolved) {
-      for (const name of rd.characters) {
-        const char = makeCharacterConfig(PROJECT_ROOT, name)
-        const exists = yield* charFs.characterExists(char)
-        if (!exists) {
-          yield* Effect.logError(`Character directory not found: ${char.dir}`)
-          return
-        }
-      }
-    }
-
-    yield* runOrchestrator(resolved, args.tickInterval, args.manualApproval)
+    // 4. Validate and start
+    yield* validateAndStart(PROJECT_ROOT, resolved, args.tickInterval, args.manualApproval)
   })
 
 // --- root command ---
