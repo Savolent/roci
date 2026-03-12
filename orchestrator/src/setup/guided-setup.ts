@@ -7,6 +7,7 @@ import type { ProcedureMessage } from "../core/domain-bundle.js"
 import { scaffoldCharacter } from "../core/character-scaffold.js"
 import { logToConsole } from "../logging/console-renderer.js"
 import { validateAndStart } from "./validate-and-start.js"
+import { ensureOAuthToken } from "./oauth-token.js"
 
 /** Log a ProcedureMessage to console with appropriate prefix. */
 const logProcMsg = (msg: ProcedureMessage) => {
@@ -140,7 +141,10 @@ export const runGuidedSetup = (projectRoot: string) =>
       }
     }
 
-    // 4. Optionally validate and start
+    // 4. Ensure OAuth token is available
+    yield* ensureOAuthToken(projectRoot)
+
+    // 5. Optionally validate and start
     const totalChars = Object.values(config).reduce((sum, e) => sum + e.characters.length, 0)
     if (totalChars === 0) {
       yield* logToConsole("setup", "cli", "No characters were added. Run 'roci setup' again when ready.")
