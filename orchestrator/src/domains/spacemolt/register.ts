@@ -90,44 +90,50 @@ export function registerCharacter(
     })
 
     ws.on("message", (data) => {
-      try {
-        const event = parseGameEvent(data.toString())
+      const raw = data.toString()
+      // Server may send multiple JSON objects in one WS frame (newline-delimited)
+      const chunks = raw.split("\n").filter((s) => s.trim().length > 0)
+      for (const chunk of chunks) {
+        if (settled) return
+        try {
+          const event = parseGameEvent(chunk)
 
-        if (event.type === "welcome") {
-          // Send registration
-          ws.send(JSON.stringify({
-            type: "register",
-            payload: { username, empire, registration_code: registrationCode },
-          }))
-          return
-        }
+          if (event.type === "welcome") {
+            // Send registration
+            ws.send(JSON.stringify({
+              type: "register",
+              payload: { username, empire, registration_code: registrationCode },
+            }))
+            continue
+          }
 
-        if (event.type === "registered") {
-          const payload = (event as RegisteredEvent).payload
-          settled = true
-          cleanup()
-          resume(Effect.succeed({
-            username,
-            password: payload.password,
-            playerId: payload.player_id,
-          }))
-          return
-        }
+          if (event.type === "registered") {
+            const payload = (event as RegisteredEvent).payload
+            settled = true
+            cleanup()
+            resume(Effect.succeed({
+              username,
+              password: payload.password,
+              playerId: payload.player_id,
+            }))
+            return
+          }
 
-        if (event.type === "error") {
-          const errEvent = event as { type: "error"; payload: { code: string; message: string } }
-          settled = true
-          cleanup()
-          resume(Effect.fail(new RegistrationError(
-            `Registration failed: ${errEvent.payload.code} — ${errEvent.payload.message}`,
-          )))
-          return
-        }
-      } catch (err) {
-        if (!settled) {
-          settled = true
-          cleanup()
-          resume(Effect.fail(new RegistrationError("Failed to parse server message", err)))
+          if (event.type === "error") {
+            const errEvent = event as { type: "error"; payload: { code: string; message: string } }
+            settled = true
+            cleanup()
+            resume(Effect.fail(new RegistrationError(
+              `Registration failed: ${errEvent.payload.code} — ${errEvent.payload.message}`,
+            )))
+            return
+          }
+        } catch (err) {
+          if (!settled) {
+            settled = true
+            cleanup()
+            resume(Effect.fail(new RegistrationError("Failed to parse server message", err)))
+          }
         }
       }
     })
