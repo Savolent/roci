@@ -88,6 +88,34 @@ Output ONLY the two sections with the delimiters. No preamble, no commentary.`
 }
 
 /**
+ * Generate a brief summary of a character's identity using Claude CLI.
+ * Returns a 4-sentence summary string, or null on failure.
+ */
+function generateSummaryWithClaude(characterName: string, background: string): string | null {
+  const prompt = `Here is the background document for an AI character named "${characterName}":\n\n${background}\n\nWrite exactly 4 sentences summarizing this character's identity, personality, and motivations. Be concise and vivid. Output ONLY the summary, no preamble.`
+
+  try {
+    const output = execFileSync("claude", [
+      "-p",
+      prompt,
+      "--model", "haiku",
+      "--dangerously-skip-permissions",
+      "--no-session-persistence",
+    ], {
+      encoding: "utf-8",
+      timeout: 30_000,
+      env: { ...process.env, CLAUDECODE: undefined },
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+
+    const trimmed = output.trim()
+    return trimmed || null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Scaffold a new character's generic identity files.
  *
  * Creates `players/<name>/me/` and writes the four standard files
@@ -99,7 +127,7 @@ Output ONLY the two sections with the delimiters. No preamble, no commentary.`
  * rich background and values content. Falls back to placeholder
  * templates if generation fails.
  *
- * @returns list of messages indicating created or skipped file paths
+ * @returns object with results (file creation messages) and optional summary
  */
 export const scaffoldCharacter = (opts: {
   projectRoot: string
@@ -109,7 +137,7 @@ export const scaffoldCharacter = (opts: {
     valuesHints: string
   }
   characterDescription?: string
-}): Effect.Effect<string[], never, never> =>
+}): Effect.Effect<{ results: string[], summary?: string }, never, never> =>
   Effect.sync(() => {
     const { projectRoot, characterName, identityTemplate, characterDescription } = opts
     const charDir = path.resolve(projectRoot, "players", characterName, "me")
@@ -167,5 +195,11 @@ export const scaffoldCharacter = (opts: {
       }
     }
 
-    return results
+    // Generate a brief summary if AI generation succeeded
+    let summary: string | undefined
+    if (generated) {
+      summary = generateSummaryWithClaude(characterName, generated.background) ?? undefined
+    }
+
+    return { results, summary }
   })

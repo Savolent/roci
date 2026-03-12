@@ -31,10 +31,26 @@ const startupPhase = {
       const charFs = yield* CharacterFs
       const gameSocket = yield* GameSocket
 
+      // Try to read credentials — if missing, the character needs to register first
+      const credsResult = yield* charFs.readCredentials(context.char).pipe(
+        Effect.map((creds) => ({ _tag: "ok" as const, creds })),
+        Effect.catchAll(() => Effect.succeed({ _tag: "missing" as const, creds: null })),
+      )
+
+      if (credsResult._tag === "missing") {
+        yield* logToConsole(
+          context.char.name,
+          "orchestrator",
+          "No credentials.txt found — character will need to register in-game during first session",
+        )
+        // Dream if diary is long, then proceed to active without a connection
+        yield* runReflection(context.char, DIARY_COMPRESSION_THRESHOLD)
+        return { _tag: "Continue", next: "active" } as PhaseResult
+      }
+
       // Connect to the game
-      const creds = yield* charFs.readCredentials(context.char)
       const { events, initialState, tickIntervalSec, initialTick } =
-        yield* gameSocket.connect(creds, context.char.name)
+        yield* gameSocket.connect(credsResult.creds, context.char.name)
 
       yield* logToConsole(
         context.char.name,

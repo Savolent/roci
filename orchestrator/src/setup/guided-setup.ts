@@ -23,6 +23,9 @@ const logProcMsg = (msg: ProcedureMessage) => {
  */
 export const runGuidedSetup = (projectRoot: string) =>
   Effect.gen(function* () {
+    // Ensure OAuth token is available before anything else
+    yield* ensureOAuthToken(projectRoot)
+
     yield* logToConsole("setup", "cli", "Welcome to Rocinante crew orchestrator setup!")
     yield* logToConsole("setup", "cli", "")
 
@@ -97,14 +100,14 @@ export const runGuidedSetup = (projectRoot: string) =>
         yield* logToConsole("setup", "cli", `\nScaffolding ${name}...`)
 
         // Scaffold generic identity files
-        const scaffoldResults = yield* scaffoldCharacter({
+        const { results: _scaffoldResults, summary } = yield* scaffoldCharacter({
           projectRoot,
           characterName: name,
           identityTemplate: domainConfig.identityTemplate,
           characterDescription: charDescription.trim() || undefined,
         })
-        for (const line of scaffoldResults) {
-          yield* logToConsole("setup", "cli", line)
+        if (summary) {
+          yield* logToConsole("setup", "cli", summary)
         }
 
         // Domain-specific setup
@@ -147,10 +150,7 @@ export const runGuidedSetup = (projectRoot: string) =>
       }
     }
 
-    // 4. Ensure OAuth token is available
-    yield* ensureOAuthToken(projectRoot)
-
-    // 5. Optionally validate and start
+    // 4. Optionally validate and start
     const totalChars = Object.values(config).reduce((sum, e) => sum + e.characters.length, 0)
     if (totalChars === 0) {
       yield* logToConsole("setup", "cli", "No characters were added. Run 'roci setup' again when ready.")

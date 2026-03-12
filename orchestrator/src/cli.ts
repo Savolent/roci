@@ -17,6 +17,7 @@ import type { ProcedureMessage } from "./core/domain-bundle.js"
 import { scaffoldCharacter } from "./core/character-scaffold.js"
 import { runGuidedSetup } from "./setup/guided-setup.js"
 import { validateAndStart } from "./setup/validate-and-start.js"
+import { ensureOAuthToken } from "./setup/oauth-token.js"
 
 const isDev = import.meta.url.endsWith(".ts")
 const PROJECT_ROOT = isDev
@@ -362,13 +363,13 @@ const setupCommand = Command.make("setup", { characters: setupCharacters, domain
       const charDir = path.resolve(PROJECT_ROOT, "players", charName, "me")
 
       // Scaffold generic identity files (background.md, VALUES.md, DIARY.md, SECRETS.md)
-      const scaffoldResults = yield* scaffoldCharacter({
+      const { summary } = yield* scaffoldCharacter({
         projectRoot: PROJECT_ROOT,
         characterName: charName,
         identityTemplate: domainConfig.identityTemplate,
       })
-      for (const line of scaffoldResults) {
-        yield* logToConsole("setup", "cli", line)
+      if (summary) {
+        yield* logToConsole("setup", "cli", summary)
       }
 
       // Domain-specific setup
@@ -532,7 +533,10 @@ const runAutoDetect = (args: {
       return
     }
 
-    // 4. Validate and start
+    // 4. Ensure OAuth token is available before validating
+    yield* ensureOAuthToken(PROJECT_ROOT)
+
+    // 5. Validate and start
     yield* validateAndStart(PROJECT_ROOT, resolved, args.tickInterval, args.manualApproval)
   })
 
