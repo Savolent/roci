@@ -31,6 +31,12 @@ export function printRaw(character: string, source: string, line: string): void 
 /** Indent string for nested sub-agent output. */
 const INDENT = "  "
 
+/** Tools whose results are suppressed from console (the tool_use line already shows the command/description). */
+const SUPPRESS_RESULT_TOOLS = new Set(["Bash", "Read", "Glob", "Grep", "Write", "Edit"])
+
+/** Track tool_use_id → tool name so we can decide how to display results. */
+const toolUseRegistry = new Map<string, string>()
+
 /** Compute indent: subagent source or nested Claude agent (parent_tool_use_id). */
 function indentFor(source: string, event: Record<string, unknown>): string {
   if (source === "subagent") return INDENT
@@ -133,6 +139,8 @@ export const demuxEvent = (
           }
         } else if (block.type === "tool_use") {
           const toolName = block.name as string
+          const toolUseId = block.id as string | undefined
+          if (toolUseId) toolUseRegistry.set(toolUseId, toolName)
           const input = block.input as Record<string, unknown> | undefined
           const command = (input?.command as string) ?? ""
 
@@ -155,15 +163,18 @@ export const demuxEvent = (
         }
       }
     } else if (type === "user") {
-      // tool_result — log to actions + show truncated output
+      // tool_result — log to actions + show truncated output (unless suppressed)
       const msg = event.message as Record<string, unknown> | undefined
       const resultContent = msg?.content as Array<Record<string, unknown>> | undefined
       if (resultContent) {
         for (const block of resultContent) {
           const text = block.content as string | undefined
-          if (text) {
-            yield* logCharResult(char.name, text, indent)
-          }
+          if (!text) continue
+          // Suppress output for tools where the tool_use line is sufficient
+          const toolUseId = block.tool_use_id as string | undefined
+          const toolName = toolUseId ? toolUseRegistry.get(toolUseId) : undefined
+          if (toolName && SUPPRESS_RESULT_TOOLS.has(toolName)) continue
+          yield* logCharResult(char.name, text, indent)
         }
       }
 

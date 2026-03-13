@@ -209,11 +209,20 @@ export const runPlannedAction = (config: PlannedActionConfig) =>
           "orchestrator",
           `Critical interrupt: ${criticals.map(a => a.message).join("; ")}`,
         )
-        return {
-          _tag: "Interrupted" as const,
-          finalState: currentState,
-          cyclesRun: cycle,
-          criticals,
+        // If we've already run at least one cycle, return early so the phase
+        // can route us back. But if this is cycle 0 we must run the brain at
+        // least once — otherwise we loop forever without doing any work.
+        if (cycle > 0) {
+          return {
+            _tag: "Interrupted" as const,
+            finalState: currentState,
+            cyclesRun: cycle,
+            criticals,
+          }
+        }
+        // Promote criticals into the alert accumulator so the brain sees them
+        for (const alert of criticals) {
+          softAlertAcc.set(alert.ruleName ?? alert.message, alert)
         }
       }
 

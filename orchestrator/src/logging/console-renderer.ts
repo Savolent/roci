@@ -137,8 +137,8 @@ export const logCharResult = (character: string, text: string, indent = "") =>
     const lines = text.split("\n").filter((l) => l.trim().length > 0)
     if (lines.length === 0) return
 
-    const MAX_HEAD = 10
-    const MAX_TAIL = 5
+    const MAX_HEAD = 5
+    const MAX_TAIL = 3
     const c = colorFor(character)
     const prefix = `${indent}${c}  >${RESET}`
 
