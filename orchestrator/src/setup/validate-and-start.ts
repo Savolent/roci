@@ -6,7 +6,6 @@ import type { ProcedureMessage } from "../core/domain-bundle.js"
 import { CharacterFs, makeCharacterConfig } from "../services/CharacterFs.js"
 import { runOrchestrator } from "../orchestrator.js"
 import { logToConsole } from "../logging/console-renderer.js"
-import { checkOAuthToken } from "./oauth-token.js"
 
 /** Log a ProcedureMessage to console with appropriate prefix. */
 export const logProcMsg = (msg: ProcedureMessage) => {
@@ -76,12 +75,6 @@ export const validateAndStart = (
     if (!allGood) {
       yield* logToConsole("roci", "cli", "")
       yield* logToConsole("roci", "cli", "Fix the issues above before starting.")
-      return
-    }
-
-    // Check OAuth token before starting
-    const tokenOk = yield* checkOAuthToken(projectRoot)
-    if (!tokenOk) {
       return
     }
 

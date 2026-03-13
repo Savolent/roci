@@ -19,7 +19,6 @@ Everything you need to assess the situation is in your opening prompt — start 
 - **Your Identity** — your background and personality
 - **Your Values** — your working priorities
 - **Diary** — your recent diary entries
-- **Recent Body Reports** — what happened in previous sessions
 
 ## Your Files
 
