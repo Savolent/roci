@@ -180,5 +180,19 @@ export const runOrchestrator = (resolvedDomains: ResolvedDomain[], tickIntervalS
     )
 
     // Wait for all fibers (they run indefinitely until interrupted)
-    yield* Fiber.joinAll(allFibers)
+    // On exit (normal, error, or interrupt), stop all containers we created.
+    yield* Fiber.joinAll(allFibers).pipe(
+      Effect.ensuring(
+        Effect.gen(function* () {
+          yield* logToConsole("orchestrator", "main", "Shutting down — stopping containers...")
+          for (const [domainName] of containerIds) {
+            const containerName = `roci-${domainName}`
+            yield* docker.stop(containerName).pipe(
+              Effect.tap(() => logToConsole("orchestrator", "main", `Container ${containerName} stopped`)),
+              Effect.catchAll(() => Effect.void),
+            )
+          }
+        }),
+      ),
+    )
   })
