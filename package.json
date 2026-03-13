@@ -1,0 +1,26 @@
+{
+	"name": "roci",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "nx run-many -t build",
+		"test": "vitest --run",
+		"lint": "biome lint .",
+		"format": "biome format --write .",
+		"check": "biome check .",
+		"typecheck": "nx run-many -t typecheck"
+	},
+	"engines": {
+		"node": ">=20",
+		"pnpm": ">=9"
+	},
+	"packageManager": "pnpm@9.15.9",
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.6",
+		"@types/node": "^25.5.0",
+		"nx": "^22.5.4",
+		"typescript": "^5.9.3",
+		"vitest": "^3.2.4"
+	}
+}
